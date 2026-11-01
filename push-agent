@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Копирует homelab-agent на узлы по SSH (Linux или Windows с OpenSSH) в ~/homelab-agent:
+#
+#   ./push-agent pi@192.168.1.10 [user@host ...]
+#   ./push-agent --install pi@192.168.1.10 [user@host ...]   # Linux: ещё и установка/обновление на узле
+#   sudo bash /opt/homelab-dashboard/tools/push-agent.sh --install pi@192.168.1.10
+#
+# Без --install ничего не запускает на узле — дальше владелец сам: Linux — ./start-agent, Windows — start-agent.ps1.
+# С --install после копирования для каждого узла идёт интерактивный `ssh -t host sudo bash ~/homelab-agent/start-agent`:
+# пароль sudo вводите вы в терминале; токен спросит скрипт, если узел новый (у уже установленных он есть).
+# Под sudo копирование идёт от исходного пользователя (его ключи SSH и known_hosts), не от root.
+set -euo pipefail
+
+INSTALL=0
+TARGETS=()
+for arg in "$@"; do
+    case "$arg" in
+        --install) INSTALL=1 ;;
+        -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+        -*) echo "Неизвестный аргумент: $arg" >&2; exit 2 ;;
+        *) TARGETS+=("$arg") ;;
+    esac
+done
+[ "${#TARGETS[@]}" -ge 1 ] || { sed -n '2,11p' "$0"; exit 2; }
+
+SRC="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+STAGE="$(mktemp -d)"
+trap 'rm -rf -- "$STAGE"' EXIT
+
+# Только то, что нужно для установки: без venv, кэшей, тестов и заметок разработки
+mkdir "$STAGE/homelab-agent"
+tar -C "$SRC" --exclude=.venv --exclude=__pycache__ --exclude=.pytest_cache --exclude=tests --exclude=Obsidian \
+    --exclude=agent.toml --exclude='token-*' --exclude=push-agent -cf - . | tar -C "$STAGE/homelab-agent" -xf -
+chmod 0755 "$STAGE/homelab-agent/start-agent" "$STAGE/homelab-agent/uninstall-agent" "$STAGE/homelab-agent/packaging/install.sh"
+
+AS=()
+if [ -n "${SUDO_USER:-}" ] && [ "$(id -u)" -eq 0 ]; then
+    chown -R "$SUDO_USER" "$STAGE"
+    AS=(sudo -u "$SUDO_USER")
+fi
+
+for target in "${TARGETS[@]}"; do
+    echo "==> $target"
+    # -p сохраняет права (start-agent исполняемый); каталог ляжет в домашний: ~/homelab-agent
+    "${AS[@]}" scp -p -r -q "$STAGE/homelab-agent" "$target:"
+    if [ "$INSTALL" -eq 1 ]; then
+        echo "    скопировано; запускаю установку на узле (введите пароль sudo)"
+        # -t: нужен терминал для пароля sudo и запроса токена. Ошибка одного узла не прерывает остальные.
+        "${AS[@]}" ssh -t "$target" "sudo bash ~/homelab-agent/start-agent" \
+            || echo "    ОШИБКА: установка на $target не удалась (код $?)" >&2
+    else
+        echo "    скопировано в ~/homelab-agent. На узле:"
+        echo "      Linux:   cd ~/homelab-agent && nano start-agent   # TOKEN=\"…\", затем  ./start-agent"
+        echo "      Windows: откройте homelab-agent\\start-agent.ps1, впишите \$TOKEN, ПКМ → «Выполнить с помощью PowerShell»"
+    fi
+done

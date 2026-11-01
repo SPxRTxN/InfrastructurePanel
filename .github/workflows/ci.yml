@@ -1,0 +1,27 @@
+# CI агента — работает в ветке infrastructurePanel-Main открытого репозитория (там агент лежит в корне).
+# Ветка — зеркало папки handoff/homelab-agent из Dashboard-Main; правки агента присылайте PR в dev (CONTRIBUTING.md).
+# В закрытом репозитории файл лежит внутри handoff/homelab-agent/ и GitHub его не запускает — тесты агента там гоняет ci.yml.
+name: agent-ci
+
+on:
+  push:
+    branches: [infrastructurePanel-Main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -q -r requirements-dev.txt
+      - run: pytest -q

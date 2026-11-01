@@ -1,0 +1,79 @@
+# Пример конфига homelab-agent. Рабочий файл: /opt/homelab-agent/etc/agent.toml (root:homelab-agent 0640).
+# install.sh копирует этот файл как есть, поэтому включено только то, что работает на любом узле;
+# остальное — закомментированные примеры. Токены — в отдельных файлах 0600; в репозиторий их не кладите.
+
+node = "raspberry-pi"                # ровно как имя узла в панели («Инфраструктура» → «Узлы»)
+interval = 10                      # секунд, по умолчанию для всех коллекторов
+buffer = 360                       # сколько последних выборок хранить на время обрыва связи
+
+# Панелей может быть несколько — соединения независимы (у каждой свой токен).
+[[panel]]
+url = "ws://192.168.1.39:8000/agent/ws"   # за HTTPS-прокси — wss://…
+token_file = "/opt/homelab-agent/etc/token-main"
+insecure = true                    # разрешает ws:// без TLS — только в своей LAN; с wss:// уберите
+# ca_file = "/opt/homelab-agent/etc/ca.pem"   # свой CA (самоподписанный сертификат панели)
+
+# Вторая панель (например, на Pi или узле администрирования):
+# [[panel]]
+# url = "wss://192.168.1.10:8443/agent/ws"
+# token_file = "/opt/homelab-agent/etc/token-pi"
+
+# Если секции [collectors] нет совсем — включены cpu, memory, disks, thermal, uptime.
+[collectors.cpu]
+[collectors.memory]
+[collectors.disks]
+# exclude_fs = ["vfat"]                   # дополнительно к встроенному списку виртуальных ФС
+# include_mounts = ["/", "/srv/data"]     # только эти точки монтирования
+[collectors.thermal]
+[collectors.uptime]
+
+# Процессы: running 1/0, cpu %, rss байт; match — подстрока командной строки
+# [collectors.processes]
+# watch = [ { name = "nginx", match = "nginx: master" }, { name = "xray", match = "xray" } ]
+
+# Службы: systemd.<unit>.active = 1/0
+# [collectors.systemd]
+# units = ["nginx.service", "docker.service"]
+# interval = 30
+
+# Проверки: checks.<name>.up / latency_ms
+# [collectors.checks]
+# tcp = [ { name = "router", host = "192.168.1.1", port = 80 } ]
+# http = [ { name = "dashboard", url = "http://192.168.1.39:8000/healthz", expect = 200 } ]
+
+# Свои метрики: команда списком аргументов (без shell), из вывода — число
+# parse: first_int | first_float | lines | exit_code; timeout по умолчанию 10 с
+# [collectors.command]
+# items = [ { name = "apt_updates", argv = ["/usr/lib/update-notifier/apt-check", "--quiet"], parse = "first_int", interval = 3600 } ]
+
+# Действия восстановления — только то, что разрешено здесь. Панель присылает лишь имя, аргументов не бывает.
+# Для sudo нужна строка в /etc/sudoers.d/homelab-agent ровно на эту команду (packaging/sudoers.example).
+# [actions.restart_nginx]
+# label = "Перезапустить nginx"
+# argv = ["sudo", "-n", "systemctl", "restart", "nginx.service"]
+# timeout = 30                       # секунд, потом процесс убивается
+# limit = "3/h"                      # не чаще 3 раз в час (единицы: s, m, h, d)
+# auto = { when = "systemd.nginx.service.active == 0", for = 60 }   # автовосстановление (опция)
+
+# Обновление агента из панели («Инфраструктура → Агенты»): новая версия проверяется на этом же конфиге и только
+# потом заменяет текущую, сторож откатывает, если она не подключилась. Правило sudo на перезапуск ставит install.sh.
+[update]
+enabled = true
+
+# OLED 128×64 по I2C (Raspberry Pi). Нужны пакеты из requirements-display.txt и включённый I2C.
+# Адрес проверить: sudo i2cdetect -y 1
+[display]
+enabled = false                    # true — на узле с дисплеем (install.sh --display)
+driver = "ssd1306"                 # SSD1315 совместим с SSD1306
+i2c_port = 1
+address = 0x3C
+rotate = 0                         # 0..3 (×90°)
+screens = ["network", "health", "panels", "uptime"]
+switch_every = 5                   # секунд на экран
+# Против выгорания: сдвиг на 1–2 px раз в shift_every секунд и пониженная яркость ночью
+shift_every = 60
+contrast = 255
+night_contrast = 1
+night_start = "23:00"
+night_end = "07:00"
+# font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"   # по умолчанию DejaVu, если есть

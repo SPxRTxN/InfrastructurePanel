@@ -1,0 +1,12 @@
+[Unit]
+Description=homelab-agent-guard: вернуть прежнюю версию агента, если новая не подключилась к панели
+Documentation=file:///opt/homelab-agent/bin/README.md
+
+[Service]
+Type=oneshot
+# Сторож — от root и вне app/: сломанная версия агента не должна ломать и его. Только стандартная библиотека.
+ExecStart=/usr/bin/python3 /opt/homelab-agent/bin/guard.py /opt/homelab-agent/app
+Environment=HOMELAB_AGENT_STATE=/opt/homelab-agent/state
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=yes

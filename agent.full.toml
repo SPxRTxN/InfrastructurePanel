@@ -1,0 +1,101 @@
+# СПРАВОЧНИК всех настроек homelab-agent (адреса и сервисы — примеры, на узле их нет).
+# Рабочий конфиг начинайте с agent.example.toml — его и копирует install.sh.
+# Токены — в отдельных файлах 0600; в репозиторий их не кладите.
+
+# node = "raspberry-pi"            # имя узла в панели; по умолчанию hostname
+interval = 10                      # секунд, по умолчанию для всех коллекторов
+buffer = 360                       # сколько последних выборок хранить на время обрыва связи
+
+# Панелей может быть несколько — соединения независимы.
+[[panel]]
+url = "wss://dashboard.lan/agent/ws"
+token_file = "/opt/homelab-agent/etc/token-main"
+# ca_file = "/opt/homelab-agent/etc/ca.pem"   # свой CA (самоподписанный сертификат панели)
+# insecure = false                        # true разрешает ws:// — только для локальной отладки
+
+[[panel]]
+url = "wss://192.168.1.10:8443/agent/ws"
+token_file = "/opt/homelab-agent/etc/token-pi"
+
+# Если секции [collectors] нет совсем — включены cpu, memory, disks, thermal, uptime.
+[collectors.cpu]
+[collectors.memory]
+[collectors.disks]
+# exclude_fs = ["vfat"]                   # дополнительно к встроенному списку виртуальных ФС
+# include_mounts = ["/", "/srv/data"]     # только эти точки монтирования
+[collectors.thermal]
+[collectors.uptime]
+
+[collectors.processes]             # running 1/0, cpu %, rss байт; match — подстрока командной строки
+watch = [ { name = "nginx", match = "nginx: master" }, { name = "xray", match = "xray" } ]
+
+[collectors.systemd]                # systemd.<unit>.active = 1/0
+units = ["nginx.service", "docker.service"]
+interval = 30
+
+[collectors.checks]                 # checks.<name>.up / latency_ms
+tcp = [ { name = "router", host = "192.168.1.1", port = 80 } ]
+http = [ { name = "dashboard", url = "http://127.0.0.1:8000/health", expect = 200 } ]
+
+[collectors.command]                # свои метрики: команда списком аргументов (без shell), из вывода — число
+# parse: first_int | first_float | lines | exit_code; timeout по умолчанию 10 с
+items = [ { name = "apt_updates", argv = ["/usr/lib/update-notifier/apt-check", "--quiet"], parse = "first_int", interval = 3600 } ]
+
+# Действия восстановления — только то, что разрешено здесь. Панель присылает лишь имя, аргументов не бывает.
+# Для sudo нужна строка в /etc/sudoers.d/homelab-agent ровно на эту команду (packaging/sudoers.example).
+[actions.restart_nginx]
+label = "Перезапустить nginx"
+argv = ["sudo", "-n", "systemctl", "restart", "nginx.service"]
+timeout = 30                       # секунд, потом процесс убивается
+limit = "3/h"                      # не чаще 3 раз в час (единицы: s, m, h, d)
+# Автовосстановление (опция): условие по датчику держится `for` секунд → запуск (в пределах limit)
+# auto = { when = "systemd.nginx.service.active == 0", for = 60 }
+
+# VPN узла: панель («Инфраструктура → VPN») присылает конфиг sing-box, агент проверяет, применяет и при неудаче
+# откатывается. Нужны: install.sh --vpn, sing-box в /usr/local/bin, строки homelab-vpn в sudoers.
+# [vpn]
+# enabled = true
+# rollback_seconds = 60                       # сколько ждать связи с панелью и интернетом через туннель
+# check_url = "https://www.gstatic.com/generate_204"
+
+# Wake-on-LAN: панель («Карта сети» → устройство → «Разбудить») просит агента в той же сети послать magic packet.
+# Агент принимает только MAC и широковещательный адрес (…255). Ничего больше от панели не исполняется.
+# [wol]
+# enabled = true
+# port = 9                                    # UDP 9 (или 7)
+
+# Обновление агента из панели («Инфраструктура → Агенты»). По умолчанию выключено. Пакет берётся только с панели,
+# к которой подключён агент (по токену узла), сверяется по SHA-256, ставится в releases/<версия>/ со своим venv,
+# проходит самотест (--check-config и --once на этом же конфиге) и только потом включается. Нужна раскладка из
+# install.sh (releases/ + current) и строка в sudoers для перезапуска (packaging/sudoers.example).
+# Если новая версия не подключилась к панели за confirm_seconds, сторож (homelab-agent-guard.timer) вернёт прежнюю.
+# [update]
+# enabled = true
+# confirm_seconds = 120                       # 30..3600
+# restart_argv = ["sudo", "-n", "systemctl", "restart", "homelab-agent.service"]
+
+# Управление агентом из панели (только при раскладке /opt/homelab-agent). Выключатели владельца узла, по умолчанию
+# включены. config — панель читает и меняет разделы interval, collectors, display, wol, update (сохраняются в
+# etc/panel.toml поверх этого файла; panel, actions, vpn, collectors.command и update.restart_argv панель менять
+# не может). uninstall — панель может удалить агента с узла (sudo-правило ставит install.sh).
+[remote]
+config = true
+uninstall = true
+
+# OLED 128×64 по I2C (Raspberry Pi). Нужны пакеты из requirements-display.txt и включённый I2C.
+# Адрес проверить: sudo i2cdetect -y 1
+[display]
+enabled = false                    # true — на узле с дисплеем
+driver = "ssd1306"                 # SSD1315 совместим с SSD1306
+i2c_port = 1
+address = 0x3C
+rotate = 0                         # 0..3 (×90°)
+screens = ["network", "health", "panels", "uptime"]
+switch_every = 5                   # секунд на экран
+# Против выгорания: сдвиг на 1–2 px раз в shift_every секунд и пониженная яркость ночью
+shift_every = 60
+contrast = 255
+night_contrast = 1
+night_start = "23:00"
+night_end = "07:00"
+# font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"   # по умолчанию DejaVu, если есть

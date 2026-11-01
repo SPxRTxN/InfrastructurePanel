@@ -1,0 +1,53 @@
+[Unit]
+Description=homelab-agent: мониторинг и восстановление узла homelab
+Documentation=file:///opt/homelab-agent/bin/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=homelab-agent
+Group=homelab-agent
+# Юнит лежит в /opt/homelab-agent/systemd (root), в /etc/systemd/system — ссылка (systemctl link).
+# python -m ищет пакет homelab_agent в рабочем каталоге. current — symlink на app/releases/<версия>:
+# обновление из панели ([update]) и сторож переключают его, юнит остаётся прежним
+WorkingDirectory=/opt/homelab-agent/app/current
+ExecStart=/opt/homelab-agent/app/current/.venv/bin/python -m homelab_agent -c /opt/homelab-agent/etc/agent.toml
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOMELAB_AGENT_STATE=/opt/homelab-agent/state
+Restart=on-failure
+RestartSec=10
+
+# Ресурсы: агент ~29 МБ RSS, с дисплеем ~33 МБ; при обновлении из панели в этом же cgroup идёт pip — отсюда запас
+MemoryMax=192M
+CPUQuota=25%
+Nice=5
+
+# Ограничения. NoNewPrivileges намеренно НЕ включён: действия восстановления вызывают sudo
+# (setuid), а он с NoNewPrivileges=yes не работает. Если действий с sudo нет — включите:
+# NoNewPrivileges=yes
+ProtectSystem=strict
+# Места записи — только внутри папки агента: etc/ (panel.toml из панели, vpn/; сам agent.toml принадлежит root
+# или защищён sticky-битом каталога), app/ (релизы и symlink current/previous), state/ (отметки сторожа).
+# bin/ и systemd/ остаются только для чтения: агент не может подменить скрипты, запускаемые от root.
+ReadWritePaths=/opt/homelab-agent/etc /opt/homelab-agent/app /opt/homelab-agent/state
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+# AF_NETLINK — список интерфейсов (IP для hello и дисплея), AF_UNIX — journald и systemctl
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+# Устройства: только стандартные псевдоустройства и шина I2C для дисплея
+DevicePolicy=closed
+DeviceAllow=char-i2c rw
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
