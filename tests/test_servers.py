@@ -51,14 +51,14 @@ def fake_network(monkeypatch):
 
 
 def test_run_all_checks(db, fake_network):
-    pi = Server(name="Pi", host="192.168.1.10", collector="ssh", ssh_user="pi")
+    pi = Server(name="Pi", host="192.0.2.10", collector="ssh", ssh_user="pi")
     local = Server(name="Mini", host="127.0.0.1", collector="local")
     dead = Server(name="Dead", host="10.0.0.99", collector="ssh")
     off = Server(name="Off", host="10.0.0.1", collector="ssh", enabled=False)
     db.add_all([pi, local, dead, off])
     db.flush()
-    db.add_all([Service(server_id=pi.id, name="ssh", check_type="tcp", target="192.168.1.10:22"),
-                Service(server_id=pi.id, name="web", check_type="tcp", target="192.168.1.10:80")])
+    db.add_all([Service(server_id=pi.id, name="ssh", check_type="tcp", target="192.0.2.10:22"),
+                Service(server_id=pi.id, name="web", check_type="tcp", target="192.0.2.10:80")])
     db.add(ServerMetric(server_id=pi.id, online=True, ssh_ok=True, ts=utcnow() - timedelta(days=15)))
     db.add(ServerMetric(server_id=pi.id, online=True, ssh_ok=True, ts=utcnow() - timedelta(days=13)))
     db.commit()
@@ -79,7 +79,7 @@ def test_run_all_checks(db, fake_network):
 
 
 def _create(client, **extra):
-    data = {"name": "Pi", "host": "192.168.1.10", "ssh_port": "22", "collector": "ssh", "ssh_user": "pi",
+    data = {"name": "Pi", "host": "192.0.2.10", "ssh_port": "22", "collector": "ssh", "ssh_user": "pi",
             "ssh_key_path": "/home/owner/.ssh/id_secret_key", "enabled": "on", **extra}
     return client.post("/servers", data=data, follow_redirects=False)
 
@@ -124,7 +124,7 @@ def test_services_crud(admin, db):
     _create(admin)
     sid = db.scalar(select(Server)).id
     assert admin.post(f"/servers/{sid}/services", data={"name": "Web", "check_type": "http",
-                                                        "target": "http://192.168.1.10"}, follow_redirects=False).status_code == 303
+                                                        "target": "http://192.0.2.10"}, follow_redirects=False).status_code == 303
     assert admin.post(f"/servers/{sid}/services", data={"name": "Bad", "check_type": "http",
                                                         "target": "ftp://x"}).status_code == 400
     assert admin.post(f"/servers/{sid}/services", data={"name": "Bad", "check_type": "tcp",

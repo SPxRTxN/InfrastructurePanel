@@ -306,12 +306,12 @@ def test_sent_without_answer_expires(db):
 # ---------- массовое добавление узлов ----------
 
 def test_bulk_add_nodes(admin, user, db):
-    text = "raspberry-pi pi@192.168.1.10\n\n# комментарий\nnas admin@nas.lan\nbad name u@h\nnas dup@h\nx noat"
+    text = "raspberry-pi pi@192.0.2.10\n\n# комментарий\nnas admin@nas.lan\nbad name u@h\nnas dup@h\nx noat"
     page = user.post("/agents/nodes", data={"targets": text})
     assert page.status_code == 200 and page.headers["cache-control"] == "no-store"
     nodes = {n.name: n for n in db.scalars(select(Node))}
     assert set(nodes) == {"raspberry-pi", "nas"}
-    assert "push-agent.sh pi@192.168.1.10 admin@nas.lan" in page.text
+    assert "push-agent.sh pi@192.0.2.10 admin@nas.lan" in page.text
     for name in nodes:
         assert f'NODE="{name}"' in page.text
     # Каждый токен показан и подходит только к своему узлу; в БД — только хеш

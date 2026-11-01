@@ -49,7 +49,7 @@ def test_push_agent_copies_only_install_files(tmp_path):
     (fakebin / "scp").chmod(0o755)
     env = {**os.environ, "PATH": f"{fakebin}:{os.environ['PATH']}"}
     env.pop("SUDO_USER", None)
-    r = subprocess.run(["bash", str(PUSH), "pi@192.168.1.10"], env=env, capture_output=True, text=True)
+    r = subprocess.run(["bash", str(PUSH), "rpi@192.168.1.10"], env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     got = dest / "homelab-agent"
     assert (got / "start-agent").stat().st_mode & 0o111

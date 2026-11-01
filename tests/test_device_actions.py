@@ -13,7 +13,7 @@ MAC = "aa:bb:cc:dd:ee:ff"
 
 
 def _device(db, **kw):
-    d = Device(**{"name": "ПК", "type": "pc", "ip": "192.168.1.29", "mac": MAC, **kw})
+    d = Device(**{"name": "ПК", "type": "pc", "ip": "192.0.2.29", "mac": MAC, **kw})
     db.add(d)
     db.commit()
     return d
@@ -56,7 +56,7 @@ def test_registry_by_type(admin, db):
     assert ids(pc) == ["web", "wol"]
     assert ids(router) == ["web"]
     assert ids(cloud) == []
-    assert da.available(db, pc, _user(db))[0]["href"] == "http://192.168.1.29"
+    assert da.available(db, pc, _user(db))[0]["href"] == "http://192.0.2.29"
     # Без MAC Wake-on-LAN нет; с привязанным сервером появляется страница сервера
     pc.mac = ""
     pc.server = Server(name="S", host="1.2.3.4", collector="ssh", enabled=False)

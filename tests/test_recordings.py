@@ -10,14 +10,14 @@ from app.services.settings_registry import set_setting
 from app.utils import utcnow
 from tests.test_console import ORIGIN, _session, _ticket, fake_ssh, server  # noqa: F401  (фикстуры)
 
-CMD = {"cmd": "ssh pi@192.168.1.10", "password": "hunter2", "c": 80, "r": 24}
+CMD = {"cmd": "ssh user@192.0.2.10", "password": "hunter2", "c": 80, "r": 24}
 
 
 def _rec(db, server, **kw):
     r = recording.Recorder(80, 24, 1024)
     r.write("привет\r\n".encode())
     rid = r.save(db, server_id=server.id, server_name=server.name, user_id=None, username="admin",
-                 target="pi@192.168.1.10:22", reason="закрыта")
+                 target="user@192.0.2.10:22", reason="закрыта")
     row = db.get(ConsoleRecording, rid)
     for k, v in kw.items():
         setattr(row, k, v)
