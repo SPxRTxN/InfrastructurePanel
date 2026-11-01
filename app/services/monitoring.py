@@ -17,7 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Server, ServerMetric, Service
-from app.services.security import decrypt
 from app.utils import utcnow
 
 SSH_COMMAND = "df -B1 -x tmpfs -x devtmpfs -x squashfs; free -b"
@@ -134,14 +133,14 @@ async def ssh_banner(host: str, port: int) -> tuple[bool, str]:
 
 
 async def run_ssh_command(server: Server) -> str:
-    import asyncssh
+    from app.services import ssh_access
 
-    key_path = decrypt(server.ssh_key_enc)
-    # Ключ хоста проверяется по ~/.ssh/known_hosts пользователя, под которым запущено приложение
-    async with asyncssh.connect(
-        server.host, port=server.ssh_port, username=server.ssh_user or None,
-        client_keys=[key_path] if key_path else None, connect_timeout=TIMEOUT,
-    ) as conn:
+    # Ключ хоста — запомненный при первом подключении (accept-new), как у консоли; сменился — ошибка проверки
+    target = ssh_access.resolve(server, None)
+    conn, new_key = await ssh_access.connect(target)
+    if new_key:
+        ssh_access.remember_key(server, target.host, target.port, new_key)  # сохранит commit в check_server
+    async with conn:
         result = await asyncio.wait_for(conn.run(SSH_COMMAND, check=False), TIMEOUT)
         return str(result.stdout)
 
@@ -202,8 +201,10 @@ async def check_server(db: Session, server: Server) -> ServerMetric:
         else:
             try:
                 metrics = parse_ssh_output(await run_ssh_command(server))
-            except Exception as e:  # ошибки asyncssh разнообразны; показываем только тип
-                error = f"SSH-сбор не удался: {e.__class__.__name__}"
+            except Exception as e:  # ошибки asyncssh разнообразны; показываем понятную причину без подробностей
+                from app.services.ssh_access import error_text
+
+                error = f"SSH-сбор не удался: {error_text(e)}"
     server.online, server.ssh_ok, server.last_checked, server.last_error = online, ssh_ok, utcnow(), error
     metric = ServerMetric(server_id=server.id, online=online, ssh_ok=ssh_ok, ram_total=metrics.ram_total,
                           ram_used=metrics.ram_used, ram_free=metrics.ram_free, disks=json.dumps(metrics.disks))

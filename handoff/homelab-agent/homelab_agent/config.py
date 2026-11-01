@@ -18,7 +18,7 @@ LEGACY_PATH = (os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "h
                if os.name == "nt" else f"{guard.LEGACY_ETC_DIR}/agent.toml")
 DEFAULT_PATH = LEGACY_PATH if os.name == "nt" else f"{guard.ETC_DIR}/agent.toml"
 TOP_KEYS = {"node", "interval", "buffer", "panel", "collectors", "actions", "display", "vpn", "wol", "update",
-            "remote"}
+            "remote", "terminal"}
 
 
 def default_path() -> str:
@@ -63,6 +63,7 @@ class AgentConfig:
     wol: dict = field(default_factory=dict)
     update: dict = field(default_factory=dict)
     remote: dict = field(default_factory=lambda: {"config": True, "uninstall": True})
+    terminal: dict = field(default_factory=dict)  # туннель к локальному sshd, только локально (не из панели)
     path: str | None = None
 
 
@@ -118,7 +119,7 @@ def parse_config(data: dict, path: str | None = None) -> AgentConfig:
     if isinstance(panels_raw, dict):
         panels_raw = [panels_raw]
     panels = [_panel(p, i, buf) for i, p in enumerate(panels_raw)]
-    for sect in ("collectors", "actions", "display", "vpn", "wol", "update", "remote"):
+    for sect in ("collectors", "actions", "display", "vpn", "wol", "update", "remote", "terminal"):
         if sect in data and not isinstance(data[sect], dict):
             raise ConfigError(f"[{sect}] должна быть таблицей")
     return AgentConfig(
@@ -133,6 +134,7 @@ def parse_config(data: dict, path: str | None = None) -> AgentConfig:
         wol=data.get("wol", {}),
         update=data.get("update", {}),
         remote=_remote(data.get("remote")),
+        terminal=data.get("terminal", {}),
         path=path,
     )
 
@@ -209,6 +211,12 @@ def check_config(cfg: AgentConfig) -> list[str]:
         from .wol import parse_wol
 
         parse_wol(cfg.wol)
+    except (ValueError, TypeError) as exc:
+        problems.append(str(exc))
+    try:
+        from .tunnel import parse_terminal
+
+        parse_terminal(cfg.terminal)
     except (ValueError, TypeError) as exc:
         problems.append(str(exc))
     try:

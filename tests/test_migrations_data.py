@@ -24,6 +24,22 @@ ROWS = {
 }
 
 
+def test_0025_moves_host_keys(tmp_path):
+    """Ключи, запомненные до 0025 (servers.host_key, server_credentials.host_key), переезжают в ssh_host_keys."""
+    url = f"sqlite:///{tmp_path / 'keys.db'}"
+    command.upgrade(migrate.alembic_config(url), "0024_ssh_access")
+    with sqlite3.connect(tmp_path / "keys.db") as c:
+        c.execute("INSERT INTO servers (id, name, host, ssh_port, collector, ssh_user, ssh_key_enc, host_key, enabled, "
+                  "last_error) VALUES (1, 'pi', '10.0.0.5', 2222, 'ssh', 'u', '', 'ssh-ed25519 SRV', 1, '')")
+        c.execute("INSERT INTO server_credentials (server_id, kind, label, host, port, username, password_enc, "
+                  "host_key, created_at) VALUES (1, 'bmc', '', '10.0.0.6', 22, 'root', '', 'ssh-ed25519 BMC', "
+                  "'2026-11-01 00:00:00'), (1, 'os', '', '', 2222, 'u', '', '', '2026-11-01 00:00:00')")
+    migrate.upgrade(url)
+    with sqlite3.connect(tmp_path / "keys.db") as c:
+        rows = set(c.execute("SELECT server_id, host, port, key_line FROM ssh_host_keys"))
+    assert rows == {(1, "10.0.0.5", 2222, "ssh-ed25519 SRV"), (1, "10.0.0.6", 22, "ssh-ed25519 BMC")}
+
+
 def test_upgrade_from_0006_keeps_related_rows(tmp_path):
     url = f"sqlite:///{tmp_path / 'old.db'}"
     command.upgrade(migrate.alembic_config(url), "0006")
@@ -37,7 +53,10 @@ def test_upgrade_from_0006_keeps_related_rows(tmp_path):
         head = ScriptDirectory.from_config(migrate.alembic_config(url)).get_current_head()
         assert c.execute("SELECT version_num FROM alembic_version").fetchone()[0] == head
         assert c.execute("SELECT user_agent FROM sessions").fetchone()[0] == ""  # 0009: колонка добавлена, строка цела
-        for table in ROWS:
+        for table in set(ROWS) - {"group_permissions"}:
             assert c.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 1, table  # noqa: S608
+        # Права группы целы, 0023 добавила администраторам SSH-консоль
+        perms = {r[0] for r in c.execute("SELECT perm FROM group_permissions WHERE group_id = 1")}
+        assert perms == {"users.manage", "servers.console"}
         assert c.execute("SELECT must_change_credentials FROM users").fetchone()[0] == 0
         assert c.execute("PRAGMA foreign_key_check").fetchall() == []

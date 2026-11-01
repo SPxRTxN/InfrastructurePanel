@@ -1,0 +1,124 @@
+{# Настройки узла — одно место для всей настройки машины. Подключается на /nodes/{id} и /servers/{id}/settings.
+   Контекст: srv (Server), access (входы/ключи или None — нет права servers.console), settings_back (куда вернуться),
+   delete_action, delete_text, with_agent. Путь к ключу не выводится — только «задан/не задан». #}
+{% from "_macros.html" import icon, csrf with context %}
+{% from "servers/_dialog.html" import delete_dialog with context %}
+
+{% macro cred_block(kind, title) %}
+  <h4>{{ title }}</h4>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Вход</th><th>Подключение</th><th>Пароль</th><th></th></tr></thead>
+    <tbody>
+    {% for c in access.creds if c.kind == kind %}
+      <tr><td><b>{{ c.label }}</b></td>
+        <td><code>{{ c.address }}</code>{% if kind == "bmc" %} <a href="https://{{ c.host }}" target="_blank" rel="noopener noreferrer">{{ icon("external-link") }} веб-интерфейс</a>{% endif %}</td>
+        <td>{{ "сохранён" if c.has_password else "—" }}</td>
+        <td><form method="post" action="/credentials/{{ c.id }}/delete">{{ csrf() }}<button class="btn btn-sm btn-danger" data-confirm="Удалить вход {{ c.label }}?">{{ icon("trash-2") }}</button></form></td></tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">Сохранённых входов нет{% if kind == "os" %} — в консоли можно войти вручную: <code>{{ access.command }}</code>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Ключ хоста (адрес:порт)</th><th>Запомнен</th><th></th></tr></thead>
+    <tbody>
+    {% for k in access.host_keys if (k.address.rpartition(":")[0] in access.bmc_hosts) == (kind == "bmc") %}
+      <tr><td><code>{{ k.address }}</code></td><td data-time="{{ k.since }}">{{ k.since }}</td>
+        <td><form method="post" action="/hostkeys/{{ k.id }}/reset">{{ csrf() }}<button class="btn btn-sm" data-confirm="Сбросить ключ {{ k.address }}? Следующее подключение запомнит новый.">{{ icon("rotate-ccw") }} Сбросить</button></form></td></tr>
+    {% else %}
+      <tr><td colspan="3" class="muted">Пока нет — ключ запомнится при первом подключении</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <form method="post" action="/servers/{{ srv.id }}/credentials" class="form form-grid">
+    {{ csrf() }}
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <label>Название<input name="label" maxlength="64" placeholder="{{ 'BMC' if kind == 'bmc' else 'root' }}"></label>
+    <label>Адрес <span class="muted">(пусто — адрес устройства{{ "; у BMC свой" if kind == "bmc" }})</span><input name="host" maxlength="255" placeholder="{{ srv.host }}"></label>
+    <label>Порт SSH <span class="muted">(пусто — 22)</span><input name="port" type="number" min="1" max="65535" placeholder="22"></label>
+    <label>Пользователь<input name="username" required maxlength="64" autocomplete="off"></label>
+    <label>Пароль <span class="muted">(пусто — вход по ключу)</span><input name="password" type="password" maxlength="256" autocomplete="new-password"></label>
+    <div><button class="btn btn-primary">{{ icon("plus") }} Сохранить вход</button></div>
+  </form>
+{% endmacro %}
+
+<section class="card" id="settings">
+  <div class="card-head"><h3>{{ icon("settings") }} Устройство</h3></div>
+  <form method="post" action="/servers/{{ srv.id }}" class="form form-grid">
+    {{ csrf() }}
+    <input type="hidden" name="back" value="{{ settings_back }}">
+    <label>Имя<input name="name" value="{{ srv.name }}" required maxlength="128"></label>
+    <label>Тип<select name="kind">
+      <option value="server" {{ "selected" if srv.kind == "server" }}>Сервер</option>
+      <option value="pc" {{ "selected" if srv.kind == "pc" }}>Компьютер</option>
+      <option value="other" {{ "selected" if srv.kind == "other" }}>Другое</option></select></label>
+    <label>Адрес<input name="host" value="{{ srv.host }}" required maxlength="255"></label>
+    <label>Сбор<select name="collector">
+      <option value="local" {{ "selected" if srv.collector == "local" }}>local (psutil)</option>
+      <option value="ssh" {{ "selected" if srv.collector == "ssh" }}>ssh</option>
+      <option value="agent" {{ "selected" if srv.collector == "agent" }}>agent (homelab-agent)</option></select></label>
+    <label>Порт SSH<input type="number" name="ssh_port" value="{{ srv.ssh_port }}" min="1" max="65535"></label>
+    <label>Пользователь SSH<input name="ssh_user" value="{{ srv.ssh_user }}" maxlength="64" autocomplete="off"></label>
+    <label>Путь к ключу<input name="ssh_key_path" placeholder="{{ 'задан — оставьте пустым' if srv.has_key else 'не задан' }}" autocomplete="off"></label>
+    {% if srv.has_key %}<label class="check"><input type="checkbox" name="clear_key"> Удалить ключ</label>{% endif %}
+    <label class="check"><input type="checkbox" name="enabled" {{ "checked" if srv.enabled }}> Включён</label>
+    <div><button class="btn btn-primary btn-sm">Сохранить</button></div>
+  </form>
+  <p class="muted small">Для ssh: выполняется одна команда только для чтения (<code>df -B1 …; free -b</code>).</p>
+</section>
+
+{% if access %}
+<section class="card" id="access">
+  <div class="card-head"><h3>{{ icon("terminal") }} Подключение к ОС</h3>
+    <a class="btn" href="/servers/{{ srv.id }}/console">{{ icon("terminal") }} Консоль и файлы</a></div>
+  <p class="muted">Ключ хоста запоминается сам при первом подключении; если он сменится, панель откажется подключаться
+    (возможна подмена). После переустановки ОС или BMC сбросьте ключ. Пароли хранятся зашифрованными и не показываются.</p>
+  {{ cred_block("os", "Входы в ОС") }}
+</section>
+{% if srv.kind == "server" %}
+<section class="card" id="bmc">
+  <div class="card-head"><h3>{{ icon("cpu") }} Подключение к BMC</h3></div>
+  <p class="muted">iDRAC, iLO, IPMI: у BMC свой адрес — укажите его во входе.</p>
+  {{ cred_block("bmc", "Входы в BMC") }}
+</section>
+{% endif %}
+{% endif %}
+
+<section class="card" id="services">
+  <div class="card-head"><h3>{{ icon("activity") }} Сервисы</h3>
+    <form method="post" action="/servers/{{ srv.id }}/check">{{ csrf() }}<input type="hidden" name="back" value="{{ settings_back }}">
+      <button class="btn">{{ icon("refresh-cw") }} Проверить сейчас</button></form></div>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Имя</th><th>Проверка</th><th>Адрес</th><th>Статус</th><th></th></tr></thead>
+    <tbody>
+    {% for sv in srv.services %}
+      <tr><td>{{ sv.name }}</td><td>{{ sv.check_type }}</td><td><code>{{ sv.target }}</code></td>
+        <td>{% if sv.ok %}<span class="status ok">доступен</span>{% elif sv.ok is false %}<span class="status bad">недоступен</span>{% else %}<span class="status">—</span>{% endif %}</td>
+        <td><form method="post" action="/services/{{ sv.id }}/delete">{{ csrf() }}<input type="hidden" name="back" value="{{ settings_back }}">
+          <button class="btn btn-sm btn-danger" data-confirm="Удалить сервис «{{ sv.name }}»?">{{ icon("trash-2") }}</button></form></td></tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Сервисов нет</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <form method="post" action="/servers/{{ srv.id }}/services" class="form form-grid">
+    {{ csrf() }}
+    <input type="hidden" name="back" value="{{ settings_back }}">
+    <label>Имя<input name="name" required maxlength="128"></label>
+    <label>Тип<select name="check_type"><option value="tcp">tcp</option><option value="http">http</option></select></label>
+    <label>Адрес<input name="target" required placeholder="host:port или https://…" maxlength="500"></label>
+    <div><button class="btn btn-primary">{{ icon("plus") }} Добавить</button></div>
+  </form>
+</section>
+
+<section class="card" id="danger">
+  <div class="card-head"><h3>Удаление</h3></div>
+  <p class="muted small">Сервер, его сервисы, узел и место на карте сети уходят в архив вместе с историей.</p>
+  {{ delete_dialog("delete-server-dialog", delete_action, delete_text, "Удалить везде", with_agent) }}
+</section>

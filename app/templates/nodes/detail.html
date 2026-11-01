@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, csrf with context %}
+{% from "servers/_dialog.html" import delete_dialog with context %}
 {% set can_edit = user.can("servers.edit") %}
 {% block actions %}
 <a class="btn" href="/nodes/{{ n.id }}/history.json">{{ icon("save") }} История</a>
-{% if n.server %}<a class="btn" href="/servers/{{ n.server.id }}">{{ icon("server") }} {{ n.server.name }}</a>{% endif %}
+{% if n.server %}<a class="btn" href="/servers/{{ n.server.id }}">{{ icon("server") }} {{ n.server.name }}</a>
+{% if user.can("servers.console") %}<a class="btn" href="/servers/{{ n.server.id }}/console">{{ icon("terminal") }} Консоль</a>{% endif %}{% endif %}
 {% endblock %}
 {% block content %}
 <a href="/nodes" class="muted">{{ icon("arrow-left") }} Все узлы</a>
@@ -27,11 +29,6 @@
     {% if n.info[k] %}<dt>{{ label }}</dt><dd>{{ n.info[k] }}</dd>{% endif %}{% endfor %}
     {% if n.uptime %}<dt>Работает</dt><dd>{{ (n.uptime // 86400) | int }} д {{ ((n.uptime % 86400) // 3600) | int }} ч</dd>{% endif %}
   </dl>
-</section>
-
-<section class="card">
-  <div class="card-head"><h3>История за 24 часа</h3></div>
-  <div id="node-charts" class="node-charts" data-history-url="/api/nodes/{{ n.id }}/history"></div>
 </section>
 
 <section class="card">
@@ -119,15 +116,17 @@
     <form method="post" action="/nodes/{{ n.id }}/config/get">{{ csrf() }}
       <button class="btn btn-sm">{{ icon("settings") }} Настройки агента</button></form>
     {% endif %}
-    <form method="post" action="/nodes/{{ n.id }}/delete">{{ csrf() }}
-      <input type="hidden" name="remove_agent" value="0">
-      <label class="check"><input type="checkbox" name="remove_agent" value="1" checked> удалить агента с узла</label>
-      <button class="btn btn-sm btn-danger" data-confirm="{{ delete_confirm }}">{{ icon("trash-2") }} Удалить{{ " везде" if n.server }}</button></form>
+    {% if not n.server %}{{ delete_dialog("delete-node-dialog", "/nodes/%d/delete" % n.id, delete_confirm, "Удалить узел", True) }}{% endif %}
   </div>
+  {% if not n.server %}
+  <form method="post" action="/nodes/{{ n.id }}/server" class="form form-grid">{{ csrf() }}
+    <label>Адрес сервера<input name="host" maxlength="255" value="{{ n.ips[0] if n.ips else n.remote_ip }}" placeholder="адрес, если агент не прислал IP"></label>
+    <div><button class="btn btn-sm">{{ icon("server") }} Создать карточку сервера</button></div>
+  </form>
+  {% endif %}
 </section>
+{% if srv is defined %}{% include "servers/_settings.html" %}{% endif %}
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script src="/static/vendor/chart.umd.min.js" defer></script>
-<script src="/static/js/nodes.js" defer></script>
 {% endblock %}

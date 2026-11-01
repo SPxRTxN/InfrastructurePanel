@@ -138,8 +138,8 @@ def test_no_inline_scripts_in_templates():
 def test_secrets_not_exposed(admin, db):
     admin.post("/servers", data={"name": "Pi", "host": "10.0.0.2", "collector": "ssh",
                                  "ssh_key_path": "/root/.ssh/super_secret_key"})
-    pages = ["/", "/servers", "/api/servers", "/settings/servers", "/api/topology", "/topology",
-             f"/servers/{db.scalar(select(Server)).id}"]
+    pages = ["/", "/servers", "/api/servers", "/settings/intervals", "/api/topology", "/topology",
+             f"/servers/{db.scalar(select(Server)).id}", f"/servers/{db.scalar(select(Server)).id}/settings"]
     for url in pages:
         body = admin.get(url).text
         assert "super_secret_key" not in body and config.secret_key not in body, url

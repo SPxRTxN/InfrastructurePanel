@@ -92,6 +92,9 @@ def parse_hello(data) -> dict | str:
     # Возможности, которые владелец включил в конфиге агента (например, "vpn") — панель без них не шлёт команд
     features = data.get("features") if isinstance(data.get("features"), list) else []
     info["features"] = sorted({f for f in features if isinstance(f, str) and NAME_RE.match(f)})[:20]
+    tmax = data.get("tunnel_max")  # сколько сеансов терминала разрешено на узле ([terminal] max_sessions)
+    if isinstance(tmax, int) and not isinstance(tmax, bool) and 1 <= tmax <= 8:
+        info["tunnel_max"] = tmax
     ips = [ip[:64] for ip in (data.get("ip") or [])[:8] if isinstance(ip, str)]
     return {"node": node, "token": token, "version": _str(data.get("version"), 32), "info": info,
             "sensors": parsed, "actions": actions, "ip": ips}

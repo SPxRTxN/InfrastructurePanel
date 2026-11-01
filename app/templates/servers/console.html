@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block head %}<link rel="stylesheet" href="/static/vendor/xterm.min.css">{% endblock %}
+{% block actions %}<a class="btn" href="{{ srv.settings_url }}">{{ icon("key-round") }} Входы и ключи</a>{% endblock %}
+{% block content %}
+<a href="/servers/{{ srv.id }}" class="muted">{{ icon("arrow-left") }} {{ srv.name }}</a>
+
+{# Один выбор входа для консоли и файлов: сохранённый или вручную #}
+<div class="card console-card" id="console-access" data-server="{{ srv.id }}">
+  <div class="console-login">
+    <label>Вход<select name="cred" id="console-cred">
+      {% for c in access.creds %}<option value="{{ c.id }}" data-manual="0">{{ c.label }} — {{ c.address }}{{ " (пароль сохранён)" if c.has_password }}</option>{% endfor %}
+      <option value="" data-manual="1">Вручную — команда ssh</option>
+    </select></label>
+    {% if srv.agent %}
+    <label>Подключение<select name="via" id="console-via">
+      <option value="">Напрямую (панель → {{ srv.host }}:{{ srv.port }})</option>
+      <option value="agent">Через агента «{{ srv.agent }}» (локальный sshd узла)</option>
+    </select></label>
+    {% endif %}
+    <label class="console-manual">Команда <span class="muted">(как в терминале: <code>ssh -p ПОРТ пользователь@адрес</code>, без -p — порт 22)</span>
+      <input name="cmd" id="console-cmd" value="{{ access.command }}" maxlength="300" autocomplete="off" spellcheck="false"></label>
+    <label class="console-manual">Пароль{% if srv.has_key %} <span class="muted">(не нужен — у сервера есть ключ)</span>{% endif %}
+      <input name="password" id="console-password" type="password" maxlength="256" autocomplete="current-password"></label>
+  </div>
+  <p class="muted console-hint">Введённый пароль используется только для входа и не сохраняется (сохранить вход — «Входы и ключи»).
+    Ввод не записывается никогда; в журнал безопасности — открытие, закрытие и переданные файлы.</p>
+  {% if rec_mode != "off" %}
+  <p class="console-hint"><b>{{ icon("radio") }} Сеанс записывается</b> (только вывод терминала, без ввода) —
+    запись смотрит администратор в «Настройки → Записи консоли».</p>
+  {% endif %}
+  {% if rec_mode == "optional" %}
+  <label class="check"><input type="checkbox" id="console-record" checked> записывать сеанс</label>
+  {% endif %}
+</div>
+
+<div class="card console-card">
+  {# Вкладки терминалов над окном, как в браузере: у каждой свой сеанс SSH; до {{ srv.max_tabs }} всего #}
+  <div class="term-bar">
+    <div class="term-tabs" id="term-tabs" role="tablist" aria-label="Терминалы"></div>
+    <button class="term-add" id="term-add" type="button" title="Добавить терминал (до {{ srv.max_tabs }})"
+            data-max="{{ srv.max_tabs }}">{{ icon("plus") }}</button>
+    <button class="btn btn-primary btn-sm" id="console-connect" type="button">{{ icon("plug") }} Подключиться</button>
+  </div>
+  <div class="console-panes" id="console-panes"></div>
+  <div class="console-status" id="console-status" role="status"></div>
+  {# Заставка вкладки до подключения; xterm.js заменяет содержимое панели #}
+  <template id="term-placeholder">
+    <div class="console-placeholder">
+      {{ icon("terminal", "console-placeholder-icon") }}
+      <pre><span class="prompt">{{ srv.ssh_user or "user" }}@{{ srv.host }}:~$</span> <span class="cursor"></span></pre>
+      <p>Выберите вход и нажмите «Подключиться»</p>
+    </div>
+  </template>
+</div>
+
+<div class="card console-card">
+  <h3>{{ icon("upload") }} Передать файл на сервер</h3>
+  <p class="muted console-hint">Файл попадёт в домашний каталог <code>~/</code> пользователя, под которым выполнен вход
+    (выбранного выше). Наибольший размер — {{ (srv.max_upload_mb / 1024) | round(1) | replace(".0", "") }} ГБ.</p>
+  <form class="console-login" id="upload-form" data-max="{{ srv.max_upload_mb * 1024 * 1024 }}">
+    <label>Файл<input type="file" name="file" required></label>
+    <label class="check"><input type="checkbox" name="overwrite" value="1"> заменить, если файл есть</label>
+    <div><button class="btn btn-primary">{{ icon("upload") }} Передать</button></div>
+  </form>
+  <progress id="upload-progress" max="100" value="0" hidden></progress>
+  <div class="console-status" id="upload-status" role="status"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/xterm.min.js" defer></script>
+<script src="/static/vendor/xterm-addon-fit.min.js" defer></script>
+<script src="/static/js/console.js" defer></script>
+{% endblock %}

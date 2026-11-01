@@ -36,6 +36,14 @@ KINDS = {
     "panel_update": "Обновление панели",
     "agent_config": "Настройки агента из панели",
     "agent_uninstall": "Удаление агента с узла",
+    "console_open": "SSH-консоль открыта",
+    "console_close": "SSH-консоль закрыта",
+    "recording_view": "Открыта запись консоли",
+    "recording_download": "Скачана запись консоли",
+    "recording_delete": "Удалена запись консоли",
+    "ssh_access": "SSH-доступ: входы и ключи хостов",
+    "file_upload": "Файл передан на сервер",
+    "node_server": "Создана карточка сервера для узла",
 }
 
 

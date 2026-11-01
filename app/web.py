@@ -66,10 +66,9 @@ INFRA_TABS = [
     ("/nodes", "cpu", "Узлы", "servers.view"),
     ("/agents", "refresh-cw", "Агенты", "servers.view"),
     ("/topology", "network", "Карта сети", "topology.view"),
-    ("/alerts", "bell", "Оповещения", "servers.view"),
-    ("/vpn", "globe", "VPN", "settings.manage"),
-    ("/archive", "history", "Архив", "servers.view"),
 ]
+# Оповещения, VPN и архив — разделы настроек панели (адреса и права прежние)
+SETTINGS_PAGES = {"/alerts", "/vpn", "/archive"}
 
 
 def _menu(user: User) -> list[tuple]:
@@ -203,6 +202,8 @@ def render(request: Request, name: str, ctx: dict | None = None, user: User | No
     if context["active"] in {t[0] for t in INFRA_TABS} and context.get("infra_tabs"):
         # Подсветка пункта «Инфраструктура», какая бы вкладка ни была открыта
         context["active"] = context["infra_tabs"][0][0]
+    elif context["active"] in SETTINGS_PAGES:
+        context["active"] = "/settings"
     return templates.TemplateResponse(request, name, context, status_code=status_code)
 
 
