@@ -9,7 +9,7 @@ from app.services import agents
 
 @pytest.fixture
 def server(db):
-    s = Server(name="Mini", host="192.168.1.39", collector="ssh", ssh_user="root")
+    s = Server(name="Mini", host="192.0.2.39", collector="ssh", ssh_user="root")
     db.add(s)
     db.commit()
     return s
@@ -99,13 +99,13 @@ def test_settings_permissions(viewer, user, admin, db, server):
 def test_create_server_card_for_node(admin, user, viewer, db):
     n = Node(name="pi")
     agents.issue_token(n)
-    n.ips_json = '["192.168.1.10"]'
+    n.ips_json = '["192.0.2.10"]'
     db.add(n)
     db.commit()
     assert viewer.post(f"/nodes/{n.id}/server").status_code == 403
     assert admin.post(f"/nodes/{n.id}/server", follow_redirects=False).status_code == 303
     db.refresh(n)
-    assert n.server.name == "pi" and n.server.host == "192.168.1.10" and n.server.collector == "agent"
+    assert n.server.name == "pi" and n.server.host == "192.0.2.10" and n.server.collector == "agent"
     assert admin.post(f"/nodes/{n.id}/server").status_code == 400  # уже есть
     n2 = Node(name="bare")
     agents.issue_token(n2)

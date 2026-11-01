@@ -51,12 +51,12 @@ def test_public_hides_secrets():
 def test_singbox_config():
     servers, _ = vpn.parse(BODY)
     by = {s["protocol"]: s for s in servers}
-    cfg = vpn.singbox_config(by["vless"], bypass=["192.168.1.39"])
+    cfg = vpn.singbox_config(by["vless"], bypass=["192.0.2.39"])
     out = cfg["outbounds"][0]
     assert out["type"] == "vless" and out["tls"]["reality"]["public_key"] == "PUBKEYexample123"
     tun = cfg["inbounds"][0]
     assert tun["auto_route"] and "192.168.0.0/16" in tun["route_exclude_address"]
-    assert "192.168.1.39/32" in tun["route_exclude_address"]
+    assert "192.0.2.39/32" in tun["route_exclude_address"]
     assert cfg["route"]["final"] == "vpn"
     assert vpn.outbound(by["vmess"])["transport"] == {"type": "ws", "path": "/ws", "headers": {"Host": "cdn.example.org"}}
     assert vpn.outbound(by["trojan"])["transport"]["service_name"] == "gun"

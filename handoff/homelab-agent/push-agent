@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Копирует homelab-agent на узлы по SSH (Linux или Windows с OpenSSH) в ~/homelab-agent:
 #
-#   ./push-agent pi@192.168.1.10 [user@host ...]
-#   ./push-agent --install pi@192.168.1.10 [user@host ...]   # Linux: ещё и установка/обновление на узле
-#   sudo bash /opt/homelab-dashboard/tools/push-agent.sh --install pi@192.168.1.10
+#   ./push-agent rpi@192.168.1.10 [user@host ...]
+#   ./push-agent --install rpi@192.168.1.10 [user@host ...]   # Linux: ещё и установка/обновление на узле
+#   sudo bash /opt/homelab-dashboard/tools/push-agent.sh --install rpi@192.168.1.10
 #
 # Без --install ничего не запускает на узле — дальше владелец сам: Linux — ./start-agent, Windows — start-agent.ps1.
 # С --install после копирования для каждого узла идёт интерактивный `ssh -t host sudo bash ~/homelab-agent/start-agent`:

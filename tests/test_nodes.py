@@ -12,7 +12,7 @@ from app.services import agents, monitoring
 from app.services.security import hash_token
 
 HELLO = {
-    "type": "hello", "v": 1, "node": "pi", "version": "0.1.0", "ip": ["192.168.1.10"],
+    "type": "hello", "v": 1, "node": "pi", "version": "0.1.0", "ip": ["192.0.2.10"],
     "info": {"hostname": "pi", "os": "Debian 12", "threads": 4},
     "sensors": [
         {"id": "memory.total", "kind": "memory", "label": "RAM", "unit": "B"},
@@ -73,7 +73,7 @@ def test_bad_token_rejected(admin, client):
 
 
 def test_agent_session_feeds_node_and_server(admin, db):
-    token = _create(admin, server_id="new", host="192.168.1.10", on_map="on")
+    token = _create(admin, server_id="new", host="192.0.2.10", on_map="on")
     node = db.scalar(select(Node))
     server = db.scalar(select(Server))
     assert node.server_id == server.id and server.collector == "agent"

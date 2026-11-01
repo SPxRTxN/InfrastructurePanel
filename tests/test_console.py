@@ -59,7 +59,7 @@ class FakeConn:
 
 @pytest.fixture
 def server(db):
-    s = Server(name="pi", host="192.168.1.10", collector="ssh", ssh_user="rpi", ssh_key_enc=encrypt("/secret/key"))
+    s = Server(name="pi", host="192.0.2.10", collector="ssh", ssh_user="user", ssh_key_enc=encrypt("/secret/key"))
     db.add(s)
     db.commit()
     return s
@@ -133,7 +133,7 @@ def test_foreign_origin_rejected(admin, server, fake_ssh):
 def test_session_relay_and_audit(admin, server, fake_ssh, db):
     ticket = _ticket(admin, server.id)
     with admin.websocket_connect(f"/servers/{server.id}/console/ws", headers=ORIGIN) as ws:
-        ws.send_text(json.dumps({"ticket": ticket, "cmd": "ssh pi@192.168.1.10", "password": "hunter2",
+        ws.send_text(json.dumps({"ticket": ticket, "cmd": "ssh user@192.0.2.10", "password": "hunter2",
                                  "c": 9999, "r": 30}))
         assert json.loads(ws.receive_text())["t"] == "o"
         ws.send_text(json.dumps({"t": "r", "c": 100, "r": 40}))
@@ -144,13 +144,13 @@ def test_session_relay_and_audit(admin, server, fake_ssh, db):
     assert fake_ssh["size"] == (500, 30)  # размер ограничен
     t = fake_ssh["target"]
     assert (t.username, t.host, t.port, t.password, t.key_path, t.label) == (
-        "rpi", "192.168.1.10", 22, "hunter2", "/secret/key", "вручную")
+        "user", "192.0.2.10", 22, "hunter2", "/secret/key", "вручную")
     assert fake_ssh["process"].sizes == [(100, 40)]
     assert fake_ssh["conn"].closed and console._open == {}
     events = db.scalars(select(SecurityEvent).order_by(SecurityEvent.id)).all()
     assert [e.kind for e in events] == ["console_open", "console_close"]
     text = " ".join(e.detail for e in events)
-    assert "pi@192.168.1.10" in text and "hunter2" not in text and "ls\r" not in text and "echo:" not in text
+    assert "user@192.0.2.10" in text and "hunter2" not in text and "ls\r" not in text and "echo:" not in text
 
 
 def test_ticket_single_use_and_bound_to_server(admin, server, fake_ssh, db):
@@ -209,7 +209,7 @@ def test_connection_error_shows_address(admin, server, monkeypatch):
     monkeypatch.setattr(console, "open_shell", refused)
     console._open.clear()
     msg = _session(admin, server.id, {})
-    assert msg["t"] == "e" and msg["m"].startswith("pi@192.168.1.10:22: порт SSH закрыт")
+    assert msg["t"] == "e" and msg["m"].startswith("user@192.0.2.10:22: порт SSH закрыт")
 
 
 def test_limit_per_user(admin, server, fake_ssh):
@@ -231,7 +231,7 @@ def test_admin_group_gets_permission(db):
 
 def test_credentials_saved_encrypted_and_used(admin, server, fake_ssh, db):
     r = admin.post(f"/servers/{server.id}/credentials",
-                   data={"kind": "bmc", "label": "iDRAC", "host": "192.168.1.11", "port": "22",
+                   data={"kind": "bmc", "label": "iDRAC", "host": "192.0.2.11", "port": "22",
                          "username": "root", "password": "calvin-пароль"}, follow_redirects=False)
     assert r.status_code == 303
     cred = db.scalar(select(ServerCredential))
@@ -241,7 +241,7 @@ def test_credentials_saved_encrypted_and_used(admin, server, fake_ssh, db):
     # Консоль с сохранённым входом: свой адрес BMC, пароль из БД, ключа сервера у BMC нет
     assert _session(admin, server.id, {"cred": cred.id, "cmd": "ssh x@10.9.9.9", "password": "ignored"})["t"] == "o"
     t = fake_ssh["target"]
-    assert (t.host, t.username, t.password, t.key_path) == ("192.168.1.11", "root", "calvin-пароль", "")
+    assert (t.host, t.username, t.password, t.key_path) == ("192.0.2.11", "root", "calvin-пароль", "")
     log = " ".join(e.detail for e in db.scalars(select(SecurityEvent)))
     assert "calvin" not in log and "iDRAC" in log
 
@@ -269,12 +269,12 @@ def _keys(db):
 def test_host_key_remembered_and_reset(admin, server, fake_ssh, db):
     fake_ssh["new_key"] = KEY
     assert _session(admin, server.id, {})["t"] == "o"
-    key = _keys(db)[("192.168.1.10", 22)]
+    key = _keys(db)[("192.0.2.10", 22)]
     assert key.key_line == KEY
     # Отпечаток и сам ключ нигде не показываются: ни на странице, ни в журнале
     fp = ssh_access.fingerprint(KEY)
     page = admin.get(f"/servers/{server.id}").text
-    assert fp.startswith("SHA256:") and fp not in page and "AAAAC3" not in page and "192.168.1.10:22" in page
+    assert fp.startswith("SHA256:") and fp not in page and "AAAAC3" not in page and "192.0.2.10:22" in page
     events = list(db.scalars(select(SecurityEvent)))
     assert any("ключ хоста запомнен" in e.detail for e in events) and not any(fp in e.detail for e in events)
     # Второе подключение — с запомненным ключом
@@ -287,40 +287,40 @@ def test_host_key_remembered_and_reset(admin, server, fake_ssh, db):
 
 def test_keys_are_per_host_and_port(admin, server, fake_ssh, db):
     """Как known_hosts: на другом порту (другой sshd) и у BMC — свой ключ, чужой не подставляется."""
-    db.add(SshHostKey(server_id=server.id, host="192.168.1.10", port=22, key_line="ssh-ed25519 OLD"))
-    cred = ServerCredential(server_id=server.id, kind="bmc", host="192.168.1.11", username="root")
+    db.add(SshHostKey(server_id=server.id, host="192.0.2.10", port=22, key_line="ssh-ed25519 OLD"))
+    cred = ServerCredential(server_id=server.id, kind="bmc", host="192.0.2.11", username="root")
     db.add(cred)
     db.commit()
     fake_ssh["new_key"] = KEY
-    assert _session(admin, server.id, {"cmd": "ssh -p 2222 pi@192.168.1.10"})["t"] == "o"
+    assert _session(admin, server.id, {"cmd": "ssh -p 2222 user@192.0.2.10"})["t"] == "o"
     assert fake_ssh["target"].port == 2222 and fake_ssh["target"].host_key == ""
     assert _session(admin, server.id, {"cred": cred.id})["t"] == "o"
     assert fake_ssh["target"].host_key == "" and fake_ssh["target"].key_path == ""  # ключ сервера — не для BMC
     keys = _keys(db)
-    assert keys[("192.168.1.10", 22)].key_line == "ssh-ed25519 OLD"
-    assert keys[("192.168.1.10", 2222)].key_line == KEY and keys[("192.168.1.11", 22)].key_line == KEY
+    assert keys[("192.0.2.10", 22)].key_line == "ssh-ed25519 OLD"
+    assert keys[("192.0.2.10", 2222)].key_line == KEY and keys[("192.0.2.11", 22)].key_line == KEY
 
 
 def test_manual_command_limited_to_server_addresses(admin, server, fake_ssh, db):
     msg = _session(admin, server.id, {"cmd": "ssh root@10.0.0.99"})
     assert msg["t"] == "e" and "не принадлежит серверу" in msg["m"]
-    msg = _session(admin, server.id, {"cmd": "ssh -o ProxyCommand=x pi@192.168.1.10"})
+    msg = _session(admin, server.id, {"cmd": "ssh -o ProxyCommand=x user@192.0.2.10"})
     assert msg["t"] == "e" and "-o" in msg["m"]
     assert "target" not in fake_ssh
     # Адрес сохранённого входа (BMC) — разрешён и вручную
-    db.add(ServerCredential(server_id=server.id, kind="bmc", host="192.168.1.11", username="root"))
+    db.add(ServerCredential(server_id=server.id, kind="bmc", host="192.0.2.11", username="root"))
     db.commit()
-    assert _session(admin, server.id, {"cmd": "ssh admin@192.168.1.11"})["t"] == "o"
+    assert _session(admin, server.id, {"cmd": "ssh admin@192.0.2.11"})["t"] == "o"
 
 
 @pytest.mark.parametrize("cmd, expected", [
-    ("ssh pi@192.168.1.10", ("rpi", "192.168.1.10", 22)),
-    ("ssh -p 2222 pi@192.168.1.10", ("rpi", "192.168.1.10", 2222)),
-    ("-p2222 rpi@host", ("rpi", "host", 2222)),
-    ("rpi@host", ("rpi", "host", 22)),
+    ("ssh user@192.0.2.10", ("user", "192.0.2.10", 22)),
+    ("ssh -p 2222 user@192.0.2.10", ("user", "192.0.2.10", 2222)),
+    ("-p2222 user@host", ("user", "host", 2222)),
+    ("user@host", ("user", "host", 22)),
     ("host", ("def", "host", 22)),
-    ("ssh://rpi@host:2200", ("rpi", "host", 2200)),
-    ("ssh rpi@host -p 2022", ("rpi", "host", 2022)),
+    ("ssh://user@host:2200", ("user", "host", 2200)),
+    ("ssh user@host -p 2022", ("user", "host", 2022)),
 ])
 def test_parse_command(cmd, expected):
     assert ssh_access.parse_command(cmd, "def") == expected
@@ -346,7 +346,7 @@ def test_remote_path_is_home_only():
 
 def test_page_has_placeholder_and_limit(admin, server):
     page = admin.get(f"/servers/{server.id}/console").text
-    assert "console-placeholder" in page and "pi@192.168.1.10:~$" in page
+    assert "console-placeholder" in page and "user@192.0.2.10:~$" in page
     assert "8 ГБ" in page and 'data-max="8589934592"' in page and 'name="dir"' not in page
 
 

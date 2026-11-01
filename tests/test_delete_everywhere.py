@@ -17,12 +17,12 @@ from app.utils import utcnow
 def bundle(db):
     """Сервер с сервисом, историей, узлом-агентом и местом на карте (со связью к свитчу)."""
     switch = Device(name="Свитч", type="switch")
-    server = Server(name="Pi", host="192.168.1.10", collector="agent", ssh_key_enc=encrypt("/home/x/.ssh/id"))
+    server = Server(name="Pi", host="192.0.2.10", collector="agent", ssh_key_enc=encrypt("/home/x/.ssh/id"))
     db.add_all([switch, server])
     db.flush()
-    device = Device(name="Pi", type="server", ip="192.168.1.10", server_id=server.id)
+    device = Device(name="Pi", type="server", ip="192.0.2.10", server_id=server.id)
     node = Node(name="pi", token_hash="h" * 64, server_id=server.id, values_json='{"cpu.percent": 5}')
-    db.add_all([device, node, Service(server_id=server.id, name="ssh", check_type="tcp", target="192.168.1.10:22")])
+    db.add_all([device, node, Service(server_id=server.id, name="ssh", check_type="tcp", target="192.0.2.10:22")])
     db.flush()
     db.add_all([Link(a_id=switch.id, b_id=device.id),
                 ServerMetric(server_id=server.id, online=True, ssh_ok=None, ram_total=1, ram_used=1, ram_free=0,

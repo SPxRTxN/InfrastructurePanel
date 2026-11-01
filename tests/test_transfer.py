@@ -20,11 +20,11 @@ ALL = set(transfer.SECTIONS)
 def world(db):
     """Свои сущности (всё, что кроме тестовых admin/user/viewer и стандартных групп)."""
     group = Group(name="Тест-группа", description="для переноса", permissions=[GroupPermission(perm="jira.view")])
-    server = Server(name="Pi", host="192.168.1.10", collector="ssh", ssh_user="pi", ssh_port=2222,
+    server = Server(name="Pi", host="192.0.2.10", collector="ssh", ssh_user="pi", ssh_port=2222,
                     ssh_key_enc=encrypt("/home/secret/id_ed25519"), enabled=False)
     db.add_all([group, server])
     db.flush()
-    db.add(Service(server_id=server.id, name="ssh", check_type="tcp", target="192.168.1.10:22"))
+    db.add(Service(server_id=server.id, name="ssh", check_type="tcp", target="192.0.2.10:22"))
     db.add(User(username="bob", display_name="Боб", password_hash="$argon2id$fake-bob-hash", is_active=False,
                 groups=[group]))
     a, b = Device(name="Свитч", type="switch", x=10.5, y=20.0), Device(name="Pi", type="server", server_id=server.id)
@@ -73,9 +73,9 @@ def test_roundtrip_restores_everything(db, world):
     assert (bob.display_name, bob.is_active, bob.password_hash) == ("Боб", False, "$argon2id$fake-bob-hash")
     assert [g.name for g in bob.groups] == ["Тест-группа"]
     server = db.scalar(select(Server).where(Server.name == "Pi"))
-    assert (server.host, server.ssh_port, server.ssh_user, server.enabled) == ("192.168.1.10", 2222, "pi", False)
+    assert (server.host, server.ssh_port, server.ssh_user, server.enabled) == ("192.0.2.10", 2222, "pi", False)
     assert decrypt(server.ssh_key_enc) == "/home/secret/id_ed25519"
-    assert [(s.name, s.target) for s in server.services] == [("ssh", "192.168.1.10:22")]
+    assert [(s.name, s.target) for s in server.services] == [("ssh", "192.0.2.10:22")]
     switch = db.scalar(select(Device).where(Device.name == "Свитч"))
     assert (switch.x, switch.y) == (10.5, 20.0)
     assert db.scalar(select(Device).where(Device.name == "Pi")).server_id == server.id
@@ -156,7 +156,7 @@ def test_preview_and_both_strategies(db, world):
     report = transfer.apply(db, package, {"servers": "replace"})
     db.expire_all()
     assert report["counts"]["servers"]["replaced"] == 1
-    assert db.scalar(select(Server).where(Server.name == "Pi")).host == "192.168.1.10"
+    assert db.scalar(select(Server).where(Server.name == "Pi")).host == "192.0.2.10"
     assert db.scalar(select(Server).where(Server.name == "Лишний")) is not None  # replace не удаляет лишнее
 
 
