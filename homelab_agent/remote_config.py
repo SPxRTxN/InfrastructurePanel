@@ -23,7 +23,7 @@ from . import guard
 log = logging.getLogger(__name__)
 
 MANAGED = ("interval", "collectors", "display", "wol", "update")
-LOCAL_ONLY = ("panel", "actions", "vpn", "collectors.command")
+LOCAL_ONLY = ("panel", "actions", "vpn", "terminal", "collectors.command")
 # Ключи внутри managed-разделов, которые тоже только на узле: update.restart_argv — это команда для запуска
 FORBIDDEN_KEYS = {"update": {"restart_argv"}, "collectors": {"command"}}
 REMOTE_KEYS = {"config", "uninstall"}

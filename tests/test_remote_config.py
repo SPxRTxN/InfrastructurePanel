@@ -188,7 +188,7 @@ def test_config_get(etc):
     out = handle(make_agent(etc), {"type": "config_get", "id": "c-1"})[0]
     assert out["type"] == "config" and out["id"] == "c-1"
     assert out["managed"] == ["interval", "collectors", "display", "wol", "update"]
-    assert out["local_only"] == ["panel", "actions", "vpn", "collectors.command"]
+    assert out["local_only"] == ["panel", "actions", "vpn", "terminal", "collectors.command"]
     assert set(out["sections"]) == set(out["managed"])
     assert "command" not in out["sections"]["collectors"] and "restart_argv" not in out["sections"]["update"]
     assert "token" not in str(out)

@@ -12,6 +12,7 @@ from .collectors import build_collectors, safe_read
 from .config import AgentConfig
 from .transport import PanelClient
 from .updater import Updater, parse_update, run_cmd
+from .tunnel import TunnelManager, parse_terminal
 from .vpn import VpnManager, parse_vpn
 from .wol import WolSender, parse_wol
 
@@ -38,6 +39,8 @@ class Agent:
         self.vpn = VpnManager(vpn_cfg, [p.url for p in cfg.panels]) if vpn_cfg.enabled else None
         wol_cfg = parse_wol(cfg.wol)
         self.wol = WolSender(wol_cfg) if wol_cfg.enabled else None
+        term_cfg = parse_terminal(cfg.terminal)
+        self.tunnels = TunnelManager(term_cfg) if term_cfg.enabled else None
         upd_cfg = parse_update(cfg.update)
         self.updater = Updater(upd_cfg, cfg.path) if upd_cfg.enabled else None
         # Настройки и удаление из панели: только при новой раскладке и если владелец не выключил в [remote]
@@ -50,7 +53,7 @@ class Agent:
             PanelClient(p, self.hello, self.handle_action, on_vpn=self.vpn.handle if self.vpn else None,
                         on_wol=self.wol.handle if self.wol else None,
                         on_update=self.handle_update if self.updater else None,
-                        on_remote=self.handle_remote,
+                        on_remote=self.handle_remote, tunnels=self.tunnels,
                         **(client_kwargs or {})) for p in cfg.panels
         ]
 
@@ -72,6 +75,9 @@ class Agent:
         # Возможности, включённые владельцем: панель шлёт сообщения vpn только тем, кто их объявил
         msg["features"] = [name for name, on in (("vpn", self.vpn), ("wol", self.wol), ("update", self.updater)) if on]
         msg["features"] += self.remote_features
+        if self.tunnels:
+            msg["features"].append("tunnel")
+            msg["tunnel_max"] = self.tunnels.cfg.max_sessions
         return msg
 
     async def handle_remote(self, client: PanelClient, msg: dict) -> None:

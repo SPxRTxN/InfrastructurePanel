@@ -110,6 +110,10 @@ sudo ./packaging/install.sh
 - Настройки и удаление из панели: `[remote] config` / `uninstall` (по умолчанию `true`) — выключатели на узле;
   панель меняет только `interval`, `collectors`, `display`, `wol`, `update` (в `etc/panel.toml`), но не `panel`, `actions`,
   `vpn`, `collectors.command`, `update.restart_argv`. Протокол — `docs/Протокол.md`.
+- Терминал через агента (`[terminal]`, выключен по умолчанию): `enabled`, `target` (только loopback, по умолчанию
+  `127.0.0.1:22`), `max_sessions` (1..8, по умолчанию 2), `rate_kbps` (4096), `idle_timeout` (900 с). Агент пересылает
+  байты на этот адрес; вход, ключ хоста, PTY и SFTP делает панель. Менять только в `agent.toml`, из панели нельзя.
+  Нужен sshd на узле, слушающий loopback.
 - Несколько узлов одной командой: `./push-agent --install user@host1 user@host2` — копирует и запускает
   `ssh -t host sudo bash ~/homelab-agent/start-agent` (пароль sudo вводите вы).
 
