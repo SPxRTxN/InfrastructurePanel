@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf, flash with context %}
+{% block content %}
+<div class="settings">
+  <nav class="card subnav">
+    {% for slug, label, perm in nav %}
+    <a href="/settings/{{ slug }}" class="{{ 'active' if section == slug }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <div class="settings-body">
+    {{ flash(error, "Сохранено" if request.query_params.get("saved") else "") }}
+    {% block settings %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% from "_macros.html" import icon %}<!doctype html>
+<html lang="ru" data-theme="dark" data-accent="pink">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход · Homelab</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="login-page">
+  <form class="card login-card" method="post" action="/login">
+    <div class="logo">{{ icon("network", "logo-icon") }}<span>Homelab</span></div>
+    <h2>Вход</h2>
+    {% if error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ error }}</div>{% endif %}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Логин<input name="username" autocomplete="username" required autofocus maxlength="64"></label>
+    <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn btn-primary" type="submit">Войти</button>
+  </form>
+</body>
+</html>

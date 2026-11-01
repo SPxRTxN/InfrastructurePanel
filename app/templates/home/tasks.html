@@ -1,0 +1,21 @@
+{% from "_macros.html" import icon %}
+<section class="widget">
+  <div class="widget-head"><h3>Задачи</h3><a href="/jira" class="muted">Канбан {{ icon("chevron-right") }}</a></div>
+  <div class="widget-row">
+    <div class="card">
+      <h3>По статусам</h3>
+      {% if w["values"] | sum %}
+      <div class="chart-box sm"><canvas data-doughnut='{{ {"labels": w.labels, "values": w["values"]} | tojson }}'></canvas></div>
+      {% else %}<p class="muted">Задач пока нет</p>{% endif %}
+    </div>
+    <div class="card">
+      <h3>Ближайшие сроки</h3>
+      <ul class="list-plain">
+        {% for i in w.upcoming %}
+        <li><a href="/jira/issues/{{ i.key }}"><small class="muted">{{ i.key }}</small> {{ i.title }}</a>
+          <small class="{{ 'overdue' if i.due_date < w.today }}">{{ i.due_date.strftime("%d.%m") }}</small></li>
+        {% else %}<li class="muted">Нет задач со сроком</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+</section>

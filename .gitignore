@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+data/
+secrets/
+backups/
+*.age
+*.db
+*.db-journal
+.obsidian/
+.claude/settings.local.json
+.claude/worktrees/
+# Сторонние наборы на проверку (кроме описания каталога)
+inbox/*
+!inbox/README.md

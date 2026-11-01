@@ -1,0 +1,8 @@
+Filesystem                          1B-blocks         Used    Available Use% Mounted on
+/dev/mmcblk0p2                    31090814976   6123610112  23668523008  21% /
+/dev/mmcblk0p1                      535801856     52363264    483438592  10% /boot/firmware
+/dev/mapper/very-long-volume-group-name-data
+                                 500107862016 250053931008 250053931008  50% /mnt/my data
+               total        used        free      shared  buff/cache   available
+Mem:      8245170176  1932496896  4329529344    52281344  1983143936  6312673280
+Swap:      104853504           0   104853504

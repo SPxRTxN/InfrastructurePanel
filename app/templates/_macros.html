@@ -1,0 +1,12 @@
+{% macro icon(name, cls="") -%}
+<svg class="icon {{ cls }}" aria-hidden="true"><use href="/static/icons.svg#{{ name }}"></use></svg>
+{%- endmacro %}
+
+{% macro csrf() -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+{%- endmacro %}
+
+{% macro flash(error="", ok="") -%}
+{% if error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ error }}</div>{% endif %}
+{% if ok %}<div class="alert alert-ok">{{ icon("circle-check") }} {{ ok }}</div>{% endif %}
+{%- endmacro %}

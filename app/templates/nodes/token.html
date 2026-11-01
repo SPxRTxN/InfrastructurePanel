@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block content %}
+<a href="/nodes/{{ node.id }}" class="muted">{{ icon("arrow-left") }} К узлу {{ node.name }}</a>
+<section class="card">
+  <h3>{{ icon("shield") }} Токен узла «{{ node.name }}»</h3>
+  <div class="alert alert-error">{{ icon("triangle-alert") }} Токен показывается один раз — в панели хранится только его хеш. Скопируйте его сейчас.</div>
+  <p><label>Токен<input readonly value="{{ token }}" class="mono" autocomplete="off"></label></p>
+
+  <h4>1. Скопировать агента на узел (с сервера панели)</h4>
+  <pre><code>sudo bash {{ project_dir }}/tools/push-agent.sh пользователь@адрес-узла</code></pre>
+
+  <h4>2. На узле — вписать в начало установщика и запустить</h4>
+  <p class="muted small">Linux: <code>~/homelab-agent/start-agent</code>, Windows: <code>homelab-agent\start-agent.ps1</code> (строки с <code>$</code>).</p>
+  <pre><code>TOKEN="&lt;токен выше&gt;"
+NODE="{{ node.name }}"
+PANEL_URL="{{ ws_url }}"</code></pre>
+  <pre><code>cd ~/homelab-agent &amp;&amp; ./start-agent</code></pre>
+  <p class="muted small">Установщик сам поставит Python, создаст службу с автозапуском, запишет токен в защищённый файл и сотрёт его
+    из <code>start-agent</code>. Удаление — <code>./uninstall-agent</code>, подробно — <code>УДАЛЕНИЕ.md</code>.</p>
+</section>
+{% endblock %}

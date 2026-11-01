@@ -1,0 +1,39 @@
+# Homelab Dashboard в Docker.
+#   Первый запуск:   mkdir -p data ssh && docker compose up -d
+#   Первый вход:     admin / admin → обязательная смена логина и пароля (только на пустой БД)
+#   Обновление:      tools/deploy.sh            (бэкап → pull → up → проверка → откат)
+# Секреты и параметры — в .env рядом с этим файлом (см. .env.example, раздел Docker).
+name: homelab-dashboard
+
+services:
+  dashboard:
+    image: ${DASHBOARD_IMAGE:-ghcr.io/spxrtxn/infrastructurepanel}:${DASHBOARD_TAG:-latest}
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # Перекрывают значения из .env, рассчитанные на запуск без Docker
+    environment:
+      DATABASE_URL: sqlite:////data/homelab.db
+      BACKUP_DIR: /data/backups                   # BACKUP_DIR из .env — путь на хосте, внутри он смонтирован сюда
+      HOST: 0.0.0.0
+      PORT: "8000"
+      # Внутри контейнера проект лежит в /app; для подсказок с командами нужен путь на хосте (PROJECT_DIR в .env)
+      PROJECT_DIR: ${PROJECT_DIR:-<каталог проекта>}
+    # Владелец ./data на хосте должен совпадать с пользователем контейнера (tools/deploy.sh подставляет id -u)
+    user: "${DASHBOARD_UID:-1000}:${DASHBOARD_GID:-1000}"
+    ports:
+      # 127.0.0.1 — только этот хост (за HTTPS-прокси); 0.0.0.0 — доступ из локальной сети
+      - "${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_PORT:-8000}:8000"
+    volumes:
+      - ${DATA_DIR:-./data}:/data                 # БД — каталог на хосте (DATA_DIR в .env), переносится целиком
+      - ${BACKUP_DIR:-./data/backups}:/data/backups   # бэкапы — лучше на другом диске (BACKUP_DIR в .env)
+      - ./ssh:/home/app/.ssh:ro                   # ключи и known_hosts для SSH-сбора
+      - /etc/localtime:/etc/localtime:ro          # часовой пояс хоста (или TZ=… в .env)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"       # адрес самого хоста изнутри контейнера
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true

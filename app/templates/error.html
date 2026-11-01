@@ -1,0 +1,12 @@
+{% if user %}{% extends "base.html" %}{% else %}{% extends "bare.html" %}{% endif %}
+{% block content %}
+<div class="card empty-state">
+  <h2>{{ code }}</h2>
+  <p class="muted">{{ message }}</p>
+  {% if code == 400 %}
+  <button class="btn" type="button" data-back>Назад</button>
+  {% else %}
+  <a class="btn" href="/">На главную</a>
+  {% endif %}
+</div>
+{% endblock %}

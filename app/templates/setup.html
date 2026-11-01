@@ -1,0 +1,28 @@
+{% from "_macros.html" import icon %}<!doctype html>
+<html lang="ru" data-theme="dark" data-accent="pink">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Первый вход · Homelab</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="login-page">
+  <form class="card login-card" method="post" action="/setup">
+    <div class="logo">{{ icon("network", "logo-icon") }}<span>Homelab</span></div>
+    <h2>Первый вход</h2>
+    <p class="muted small">Вы вошли под учётной записью по умолчанию. Задайте свои логин и пароль — до этого панель недоступна.</p>
+    {% if error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ error }}</div>{% endif %}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Новый логин<input name="username" value="{{ username }}" autocomplete="username" required autofocus maxlength="64"></label>
+    <label>Новый пароль <small class="muted">(не короче {{ min_len }} символов)</small>
+      <input name="password" type="password" autocomplete="new-password" required minlength="{{ min_len }}"></label>
+    <label>Повторите пароль<input name="password2" type="password" autocomplete="new-password" required minlength="{{ min_len }}"></label>
+    <button class="btn btn-primary" type="submit">Сохранить и продолжить</button>
+    <button class="btn btn-sm" type="submit" form="logout-form">{{ icon("log-out") }} Выйти</button>
+  </form>
+  <form id="logout-form" method="post" action="/logout" hidden>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  </form>
+</body>
+</html>

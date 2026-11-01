@@ -1,0 +1,19 @@
+{# Поля задачи для форм создания и редактирования. issue — None при создании. #}
+<label>Заголовок<input name="title" value="{{ issue.title if issue }}" required maxlength="255"></label>
+<div class="form-grid">
+  <label>Приоритет<select name="priority">
+    {% for k, v in priorities.items() %}<option value="{{ k }}" {{ "selected" if (issue and issue.priority == k) or (not issue and k == "medium") }}>{{ v }}</option>{% endfor %}
+  </select></label>
+  <label>Исполнитель<select name="assignee_id">
+    <option value="">— не назначен —</option>
+    {% for u in users %}<option value="{{ u.id }}" {{ "selected" if issue and issue.assignee_id == u.id }}>{{ u.name }}</option>{% endfor %}
+  </select></label>
+  <label>Срок<input type="date" name="due_date" value="{{ issue.due_date.isoformat() if issue and issue.due_date }}"></label>
+  <label>Метки<input name="labels" value="{{ issue.labels.replace(',', ', ') if issue }}" placeholder="сеть, nas" maxlength="500"></label>
+</div>
+<div class="md-editor">
+  <label>Описание (Markdown)
+    <textarea name="description" maxlength="50000" hx-post="/markdown/preview" hx-trigger="keyup changed delay:500ms, load" hx-target="next .md-preview">{{ issue.description if issue }}</textarea>
+  </label>
+  <div class="md-preview markdown"></div>
+</div>

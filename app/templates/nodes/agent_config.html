@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf, flash with context %}
+{% block content %}
+<a href="/nodes/{{ n.id }}" class="muted">{{ icon("arrow-left") }} К узлу «{{ n.name }}»</a>
+{{ flash(error, result) }}
+{% if cfg %}
+<section class="card">
+  <h3>Настройки агента</h3>
+  <p class="muted">Каждый раздел — JSON-объект. Агент сам проверяет итоговый конфиг и при успехе перезапускается.</p>
+  <form method="post" action="/nodes/{{ n.id }}/config/set" class="form">{{ csrf() }}
+    {% for name in cfg.managed %}
+    <label>{{ name }}
+      <textarea name="sec_{{ name }}" rows="6" maxlength="20000" spellcheck="false">{{ cfg.sections[name] }}</textarea></label>
+    {% endfor %}
+    <div><button class="btn btn-primary btn-sm" data-confirm="Сохранить настройки и перезапустить агента?">Сохранить</button></div>
+  </form>
+  {% if cfg.local_only %}
+  <h4>Меняется только на узле</h4>
+  <p class="muted">{{ cfg.local_only | join(", ") }}</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,18 @@
+# Белый список: в образ попадает только то, что нужно для запуска.
+# .env, data/, .git, .venv, tests/, Obsidian/, design/ остаются снаружи.
+*
+!app/
+!migrations/
+!alembic.ini
+!requirements.txt
+!requirements.lock
+# Агент — встраивается в образ, панель регистрирует его версию для обновления узлов из панели
+!handoff/homelab-agent/
+handoff/homelab-agent/tests/
+handoff/homelab-agent/Obsidian/
+handoff/homelab-agent/.venv/
+handoff/homelab-agent/.pytest_cache/
+handoff/homelab-agent/agent.toml
+handoff/homelab-agent/**/token-*
+**/__pycache__
+**/*.pyc

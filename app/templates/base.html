@@ -1,0 +1,65 @@
+{% from "_macros.html" import icon %}<!doctype html>
+<html lang="ru" data-theme="{{ ui.theme }}" data-accent="{{ ui.accent }}" data-density="{{ ui.density }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="htmx-config" content='{"allowEval": false, "includeIndicatorStyles": false}'>
+  <title>{{ title or "Homelab" }} · Homelab</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/js/app.js" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body class="{{ 'sidebar-collapsed' if ui.sidebar_collapsed }}" hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <a href="/" class="logo">{{ icon("network", "logo-icon") }}<span class="label">Homelab</span></a>
+      <button class="icon-btn" id="sidebar-toggle" type="button" title="Свернуть меню">{{ icon("panel-left-close") }}</button>
+    </div>
+    <nav class="nav">
+      {% for url, ic, label, perm in menu %}
+      <a href="{{ url }}" class="nav-item {{ 'active' if active == url }}" title="{{ label }}">{{ icon(ic) }}<span class="label">{{ label }}</span></a>
+      {% endfor %}
+    </nav>
+    <div class="nav nav-bottom">
+      <a href="/settings" class="nav-item {{ 'active' if active == '/settings' }}" title="Настройки">{{ icon("settings") }}<span class="label">Настройки</span></a>
+      <a href="/settings/profile" class="nav-profile" title="Профиль">
+        <span class="avatar">{{ user.name[:1] | upper }}</span>
+        <span class="label"><b>{{ user.name }}</b><small>{{ user.groups | map(attribute="name") | join(", ") }}</small></span>
+      </a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="nav-item" type="submit" title="Выход">{{ icon("log-out") }}<span class="label">Выход</span></button>
+      </form>
+      <small class="label app-version" title="Версия панели">v{{ app_version }}</small>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h1>{% block page_title %}{{ title }}{% endblock %}</h1>
+      <div class="topbar-actions">
+        {% block actions %}{% endblock %}
+        <div class="dropdown" id="bell">
+          <button class="icon-btn" type="button" id="bell-btn" title="Уведомления">
+            {{ icon("bell") }}<span class="badge" id="bell-count" {{ "hidden" if not unread_count }}>{{ unread_count }}</span>
+          </button>
+          <div class="dropdown-menu" id="bell-menu" hidden>
+            <div class="dropdown-head"><b>Уведомления</b><button class="link-btn" type="button" id="bell-read">Прочитать все</button></div>
+            <div id="bell-list" class="bell-list"><p class="muted">Загрузка…</p></div>
+          </div>
+        </div>
+        <a href="/settings/profile" class="avatar" title="{{ user.name }}">{{ user.name[:1] | upper }}</a>
+      </div>
+    </header>
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

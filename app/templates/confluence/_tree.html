@@ -1,0 +1,19 @@
+{% from "_macros.html" import icon %}
+{% macro tree_nodes(nodes, current) %}
+<ul class="tree">
+  {% for n in nodes %}
+  <li>
+    <a href="/confluence/pages/{{ n.page.id }}" class="{{ 'active' if n.page.id == current }}">{{ icon("file-text") }} {{ n.page.title }}</a>
+    {% if n.children %}{{ tree_nodes(n.children, current) }}{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+<aside class="card tree-card">
+  <div class="card-head">
+    <a href="/confluence/spaces/{{ space.key }}"><b>{{ icon("folder") }} {{ space.name }}</b></a>
+    {% if user.can("confluence.edit") %}<a class="icon-btn" href="/confluence/new?space={{ space.key }}" title="Новая статья">{{ icon("plus") }}</a>{% endif %}
+  </div>
+  {% if tree %}{{ tree_nodes(tree, current) }}{% else %}<p class="muted">Статей нет</p>{% endif %}
+</aside>

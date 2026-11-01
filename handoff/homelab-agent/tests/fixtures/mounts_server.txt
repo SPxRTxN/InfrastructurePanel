@@ -1,0 +1,16 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+udev /dev devtmpfs rw,nosuid,relatime,size=7962272k,nr_inodes=1990568,mode=755,inode64 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime,size=1599372k,mode=755,inode64 0 0
+/dev/nvme0n1p2 / ext4 rw,relatime 0 0
+/dev/nvme0n1p1 /boot/efi vfat rw,relatime,fmask=0077,dmask=0077 0 0
+/dev/sdb1 /srv/data btrfs rw,relatime,space_cache=v2,subvolid=5,subvol=/ 0 0
+/dev/sdb1 /srv/data/backups btrfs rw,relatime,space_cache=v2,subvolid=257,subvol=/backups 0 0
+/dev/loop0 /snap/core22/1663 squashfs ro,nodev,relatime,errors=continue,threads=single 0 0
+/dev/loop1 /snap/lxd/29351 squashfs ro,nodev,relatime,errors=continue,threads=single 0 0
+overlay /var/lib/docker/overlay2/abc/merged overlay rw,relatime,lowerdir=/x,upperdir=/y,workdir=/z 0 0
+nsfs /run/docker/netns/1a2b nsfs rw 0 0
+/dev/nvme0n1p2 /var/lib/docker/containers/abc/hosts ext4 rw,relatime 0 0
+/dev/nvme0n1p2 /opt/homelab-dashboard/data ext4 rw,relatime 0 0
+tank/media /tank/media zfs rw,xattr,noacl 0 0
+efivarfs /sys/firmware/efi/efivars efivarfs rw,nosuid,nodev,noexec,relatime 0 0

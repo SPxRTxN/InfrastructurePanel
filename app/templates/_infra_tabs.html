@@ -1,0 +1,9 @@
+{# Вкладки раздела «Инфраструктура»: серверы, узлы с агентами и карта сети — одни данные, три вида #}
+{% from "_macros.html" import icon %}
+{% if infra_tabs | length > 1 %}
+<nav class="tabs" aria-label="Инфраструктура">
+  {% for url, ic, label, perm in infra_tabs %}
+  <a href="{{ url }}" class="tab {{ 'active' if active_tab == url }}">{{ icon(ic) }} {{ label }}</a>
+  {% endfor %}
+</nav>
+{% endif %}

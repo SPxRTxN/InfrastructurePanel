@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("jira.edit") %}
+
+{% block actions %}
+{% if can_edit %}
+<details class="popover">
+  <summary class="btn">{{ icon("plus") }} Доска</summary>
+  <form method="post" action="/jira/boards" class="card form popover-body">
+    {{ csrf() }}
+    <label>Ключ (латиница)<input name="key" required pattern="[A-Za-z][A-Za-z0-9]{1,9}" placeholder="HL"></label>
+    <label>Название<input name="name" required maxlength="128" placeholder="Homelab"></label>
+    <button class="btn btn-primary">Создать доску</button>
+  </form>
+</details>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if not board %}
+<div class="card empty-state"><p class="muted">Досок пока нет.{% if can_edit %} Создайте первую кнопкой «Доска».{% endif %}</p></div>
+{% else %}
+<div class="toolbar">
+  <nav class="tabs">
+    {% for b in boards %}<a href="/jira/boards/{{ b.id }}" class="{{ 'active' if b.id == board.id }}">{{ b.name }} <small class="muted">{{ b.key }}</small></a>{% endfor %}
+  </nav>
+  <form method="get" class="filters">
+    <input name="q" value="{{ f.q }}" placeholder="Поиск…" class="search">
+    <select name="assignee">
+      <option value="">Все исполнители</option>
+      <option value="none" {{ "selected" if f.assignee == "none" }}>Не назначен</option>
+      {% for u in users %}<option value="{{ u.id }}" {{ "selected" if f.assignee == u.id|string }}>{{ u.name }}</option>{% endfor %}
+    </select>
+    <select name="priority">
+      <option value="">Любой приоритет</option>
+      {% for k, v in priorities.items() %}<option value="{{ k }}" {{ "selected" if f.priority == k }}>{{ v }}</option>{% endfor %}
+    </select>
+    <select name="label">
+      <option value="">Любая метка</option>
+      {% for l in all_labels %}<option value="{{ l }}" {{ "selected" if f.label == l }}>{{ l }}</option>{% endfor %}
+    </select>
+    <button class="btn">{{ icon("filter") }} Найти</button>
+    {% if f.q or f.assignee or f.priority or f.label %}<a class="btn" href="/jira/boards/{{ board.id }}">{{ icon("x") }}</a>{% endif %}
+  </form>
+</div>
+
+{% if can_edit %}
+<details class="card collapsible">
+  <summary>{{ icon("plus") }} Новая задача</summary>
+  <form method="post" action="/jira/boards/{{ board.id }}/issues" class="form form-wide">
+    {{ csrf() }}
+    {% with issue = None %}{% include "jira/_issue_fields.html" %}{% endwith %}
+    <label>Колонка<select name="column_id">{% for c, _ in columns %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></label>
+    <div><button class="btn btn-primary">Создать</button></div>
+  </form>
+</details>
+{% endif %}
+
+<div class="kanban" {{ "data-editable" if can_edit }}>
+  {% for col, issues in columns %}
+  <section class="kanban-col">
+    <header class="kanban-col-head">
+      <b>{{ col.name }}</b><span class="pill">{{ issues | length }}</span>
+      {% if can_edit %}
+      <details class="popover col-menu">
+        <summary class="icon-btn">{{ icon("settings") }}</summary>
+        <div class="card popover-body">
+          <form method="post" action="/jira/columns/{{ col.id }}" class="form">{{ csrf() }}
+            <label>Название<input name="name" value="{{ col.name }}" maxlength="64"></label>
+            <div class="row">
+              <button class="btn btn-sm" name="move" value="left">←</button>
+              <button class="btn btn-sm" name="move" value="right">→</button>
+              <button class="btn btn-sm btn-primary">Сохранить</button>
+            </div>
+          </form>
+          <form method="post" action="/jira/columns/{{ col.id }}/delete">{{ csrf() }}<button class="btn btn-sm btn-danger" data-confirm="Удалить пустую колонку?">{{ icon("trash-2") }} Удалить</button></form>
+        </div>
+      </details>
+      {% endif %}
+    </header>
+    <div class="kanban-col-body" data-column-id="{{ col.id }}">
+      {% for i in issues %}
+      <a class="kanban-card prio-{{ i.priority }}" href="/jira/issues/{{ i.key }}" data-id="{{ i.id }}">
+        <div class="kc-top"><small class="muted">{{ i.key }}</small><span class="prio prio-{{ i.priority }}">{{ priorities[i.priority] }}</span></div>
+        <div class="kc-title">{{ i.title }}</div>
+        {% if i.label_list %}<div class="chips">{% for l in i.label_list %}<span class="tag">{{ l }}</span>{% endfor %}</div>{% endif %}
+        <div class="kc-bottom">
+          {% if i.due_date %}<small class="{{ 'overdue' if i.due_date < today and not i.is_done }}">{{ icon("calendar-clock") }} {{ i.due_date.strftime("%d.%m.%Y") }}</small>{% else %}<span></span>{% endif %}
+          {% if i.assignee %}<span class="avatar avatar-sm" title="{{ i.assignee.name }}">{{ i.assignee.name[:1] | upper }}</span>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+  {% if can_edit %}
+  <section class="kanban-col kanban-add">
+    <form method="post" action="/jira/boards/{{ board.id }}/columns" class="form">{{ csrf() }}
+      <input name="name" placeholder="Новая колонка" required maxlength="64">
+      <button class="btn btn-sm">{{ icon("plus") }} Колонка</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/vendor/Sortable.min.js" defer></script>
+<script src="/static/js/kanban.js" defer></script>
+{% endblock %}

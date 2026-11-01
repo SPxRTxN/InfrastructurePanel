@@ -1,0 +1,12 @@
+{% from "_macros.html" import icon %}
+<section class="widget">
+  <div class="widget-head"><h3>Последние статьи</h3><a href="/confluence" class="muted">Confluence {{ icon("chevron-right") }}</a></div>
+  <div class="card">
+    <ul class="list-plain">
+      {% for p in w.pages %}
+      <li><a href="/confluence/pages/{{ p.id }}">{{ icon("file-text") }} {{ p.title }}</a>
+        <small class="muted">{{ p.space.name }} · <span data-time="{{ p.updated_at.isoformat() }}Z"></span></small></li>
+      {% else %}<li class="muted">Статей пока нет</li>{% endfor %}
+    </ul>
+  </div>
+</section>

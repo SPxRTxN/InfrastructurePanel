@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set status_text = {"pending": "ждёт узла", "sent": "отправлено", "applied": "включено", "failed": "откатился",
+                      "unsupported": "агент без VPN"} %}
+{% block content %}
+{% include "_infra_tabs.html" %}
+
+<section class="card">
+  <h3>{{ icon("globe") }} Подписки</h3>
+  <p class="muted small">Ссылка подписки (3x-ui, Marzban и т.п.) и ключи серверов хранятся зашифрованными; здесь видны
+    только имя, протокол, адрес и порт. Поддерживаются vless (в т.ч. reality), vmess, trojan, shadowsocks, hysteria2.</p>
+  {% for s in subs %}
+  <details class="sub-item" {{ "open" if loop.length == 1 }}>
+    <summary><b>{{ s.name }}</b> <small class="muted">серверов {{ s.count }}{% if s.fetched_at %} · обновлено
+      <span data-time="{{ s.fetched_at.isoformat() }}Z">{{ s.fetched_at.strftime("%d.%m %H:%M") }}</span>{% endif %}{% if s.insecure %} · без проверки TLS{% endif %}</small></summary>
+    {% if s.error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ s.error }}</div>{% endif %}
+    <div class="table-wrap"><table class="table table-compact">
+      <thead><tr><th>Сервер</th><th>Протокол</th><th>Адрес</th><th>Транспорт</th></tr></thead>
+      <tbody>{% for x in servers[s.id] %}
+        <tr><td>{{ x.name }}</td><td>{{ x.protocol }}{% if x.security not in ("none", "") %} · {{ x.security }}{% endif %}</td>
+          <td><code>{{ x.host }}:{{ x.port }}</code></td><td>{{ x.transport }}</td></tr>
+      {% endfor %}</tbody></table></div>
+    <div class="row">
+      <form method="post" action="/vpn/subscriptions/{{ s.id }}/refresh">{{ csrf() }}<button class="btn btn-sm">{{ icon("refresh-cw") }} Обновить</button></form>
+      <form method="post" action="/vpn/subscriptions/{{ s.id }}/delete">{{ csrf() }}
+        <button class="btn btn-sm btn-danger" data-confirm="Удалить подписку «{{ s.name }}»?">{{ icon("trash-2") }} Удалить</button></form>
+    </div>
+  </details>
+  {% endfor %}
+  <details class="card collapsible" {{ "open" if not subs }}>
+    <summary>{{ icon("plus") }} Добавить подписку</summary>
+    <form method="post" action="/vpn/subscriptions" class="form form-grid">{{ csrf() }}
+      <label>Название<input name="name" maxlength="128" placeholder="Мой VPN"></label>
+      <label>Ссылка подписки<input name="url" required maxlength="2000" autocomplete="off" placeholder="https://…"></label>
+      <label class="check"><input type="checkbox" name="insecure"> Не проверять сертификат (подписка по https://IP с самоподписанным)</label>
+      <div><button class="btn btn-primary">Сохранить и загрузить</button></div>
+    </form>
+  </details>
+</section>
+
+<section class="card" id="nodes">
+  <h3>VPN на узлах</h3>
+  <p class="muted small">Режим «весь трафик»: исходящий трафик узла идёт через выбранный сервер; локальная сеть,
+    адрес панели и сам VPN-сервер — напрямую. Узел применяет сам: агенту нужно <code>[vpn] enabled = true</code> и
+    установленный sing-box. Если после включения связь не подтвердится за минуту — узел вернёт всё как было.</p>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>Узел</th><th>Сейчас</th><th>Включить через</th><th></th></tr></thead>
+    <tbody>
+    {% for n in nodes %}{% set a = assignments.get(n.id) %}
+      <tr><td><a href="/nodes/{{ n.id }}">{{ n.name }}</a>{% if not supports(n) %}<br><small class="muted">агент без VPN</small>{% endif %}</td>
+        <td>{% if a and a.mode != "off" %}<span class="status {{ 'ok' if a.status == 'applied' else ('bad' if a.status in ('failed', 'unsupported') else '') }}">{{ status_text.get(a.status, a.status) }}</span>
+            {{ a.server_name }}{% if a.detail %}<br><small class="muted">{{ a.detail }}</small>{% endif %}
+          {% elif a %}<span class="status">выключен</span>{% if a.detail %}<br><small class="muted">{{ a.detail }}</small>{% endif %}
+          {% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><form method="post" action="/vpn/assign" class="row">{{ csrf() }}<input type="hidden" name="node_id" value="{{ n.id }}">
+          <select name="server">{% for s in subs %}<optgroup label="{{ s.name }}">{% for x in servers[s.id] %}
+            <option value="{{ s.id }}:{{ x.key }}" {{ "selected" if a and a.server_key == x.key }}>{{ x.name }}</option>{% endfor %}</optgroup>{% endfor %}</select>
+          <button class="btn btn-sm btn-primary" {{ "disabled" if not subs }} data-confirm="Пустить весь трафик узла {{ n.name }} через VPN?">Весь трафик</button></form></td>
+        <td>{% if a and a.mode != "off" %}<form method="post" action="/vpn/assign/{{ n.id }}/off">{{ csrf() }}
+          <button class="btn btn-sm">Выключить</button></form>{% endif %}</td></tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">Узлов нет — добавьте во вкладке «Узлы».</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+</section>
+{% endblock %}

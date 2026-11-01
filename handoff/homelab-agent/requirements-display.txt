@@ -1,0 +1,7 @@
+# Опция [display]: OLED SSD1306/SSD1315 по I2C
+-r requirements.txt
+pillow==11.0.0
+luma.oled==3.13.0
+luma.core==2.6.0
+smbus2==0.6.1
+cbor2==6.1.5

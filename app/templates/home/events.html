@@ -1,0 +1,12 @@
+{% from "_macros.html" import icon %}
+<section class="widget">
+  <div class="widget-head"><h3>Ближайшие события</h3><a href="/calendar" class="muted">Календарь {{ icon("chevron-right") }}</a></div>
+  <div class="card">
+    <ul class="list-plain">
+      {% for e, occ in w.events %}
+      <li><span>{{ icon("repeat" if e.repeat != "none" else "calendar") }} {{ e.title }}</span>
+        <small class="muted">{{ occ.strftime("%d.%m") }}{% if not e.all_day %} {{ occ.strftime("%H:%M") }}{% endif %}</small></li>
+      {% else %}<li class="muted">Событий на 2 недели нет</li>{% endfor %}
+    </ul>
+  </div>
+</section>

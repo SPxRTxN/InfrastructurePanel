@@ -1,0 +1,10 @@
+# Следит за запросом на обновление, который кладёт панель. Ставит tools/install-updater.sh (подставляет @DATA_DIR@).
+[Unit]
+Description=Homelab Dashboard: запрос на обновление от панели
+
+[Path]
+PathChanged=@DATA_DIR@/update/request.json
+Unit=homelab-updater.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+{% from "_macros.html" import icon %}
+<div class="kpis widget-kpi">
+  {% for k in w.kpis %}
+  <a class="card kpi" href="{{ k.link }}">
+    <div><b>{{ k.value }}</b><small>{{ k.label }}</small></div>
+    <span class="kpi-icon">{{ icon(k.icon) }}</span>
+  </a>
+  {% endfor %}
+</div>

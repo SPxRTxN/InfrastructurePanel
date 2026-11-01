@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("servers.edit") %}
+{% macro rule_fields(r=None) %}
+  <label>Название<input name="name" value="{{ r.name if r }}" maxlength="128" placeholder="по виду правила"></label>
+  <label>Что проверять<select name="kind">{% for k, v in kinds.items() %}<option value="{{ k }}" {{ "selected" if r and r.kind == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Порог<input name="threshold" value="{{ r.threshold if r and r.threshold is not none }}" inputmode="decimal" placeholder="диск 90, температура 75, обрыв агента — мин (5)"></label>
+  <label>Датчик (для «Датчик агента»)<input name="sensor" value="{{ r.sensor if r }}" maxlength="200" placeholder="systemd.nginx.service.active"></label>
+  <label>Сравнение<select name="op">{% for o in ops %}<option {{ "selected" if (r and r.op == o) or (not r and o == ">=") }}>{{ o }}</option>{% endfor %}</select></label>
+  <label>Только объект<input name="target" value="{{ r.target if r }}" maxlength="128" placeholder="пусто — все; имя узла или сервера"></label>
+  <label>Держится, мин<input type="number" name="for_minutes" min="0" max="1440" value="{{ r.for_minutes if r else 5 }}"></label>
+  <label>Повторять каждые, мин<input type="number" name="repeat_minutes" min="0" max="10080" value="{{ r.repeat_minutes if r else 0 }}" title="0 — не повторять"></label>
+  <label>Важность<select name="severity"><option value="warning">предупреждение</option><option value="critical" {{ "selected" if r and r.severity == "critical" }}>критично</option></select></label>
+  <label class="check"><input type="checkbox" name="enabled" {{ "checked" if not r or r.enabled }}> Включено</label>
+  <label class="check"><input type="checkbox" name="notify_bell" {{ "checked" if not r or r.notify_bell }}> Колокольчик</label>
+  <fieldset class="check-group"><legend>Кому колокольчик <small class="muted">(ничего не отмечено — всем с доступом к серверам)</small></legend>
+    {% for g in all_groups %}<label class="check"><input type="checkbox" name="group_ids" value="{{ g.id }}" {{ "checked" if r and g in r.groups }}> {{ g.name }}</label>{% endfor %}
+  </fieldset>
+  <label class="check"><input type="checkbox" name="notify_telegram" {{ "checked" if r and r.notify_telegram }}> Telegram</label>
+  <label class="check"><input type="checkbox" name="notify_webhook" {{ "checked" if r and r.notify_webhook }}> Webhook</label>
+{% endmacro %}
+
+{% block content %}
+{% include "_infra_tabs.html" %}
+{% if flash %}<div class="alert alert-ok">{{ icon("circle-check") }} {{ flash }}</div>{% endif %}
+
+<section class="card">
+  <div class="card-head">
+    <h3>{{ icon("bell") }} Сейчас горит ({{ firing | length }})</h3>
+    {% if can_edit %}
+    <form method="post" action="/alerts/silence" class="row">{{ csrf() }}
+      {% if silence %}<span class="pill">тишина до <span data-time="{{ silence.isoformat() }}Z">{{ silence.strftime("%d.%m %H:%M") }} UTC</span></span>
+        <button class="btn btn-sm" name="minutes" value="0">Снять тишину</button>
+      {% else %}<span class="muted small">Тишина на время работ:</span>
+        <button class="btn btn-sm" name="minutes" value="60">1 ч</button>
+        <button class="btn btn-sm" name="minutes" value="240">4 ч</button>
+        <button class="btn btn-sm" name="minutes" value="1440">сутки</button>{% endif %}
+    </form>
+    {% endif %}
+  </div>
+  {% if firing %}
+  <ul class="list-plain">
+    {% for st, r in firing %}
+    <li><span class="status {{ 'bad' if r.severity == 'critical' else 'warn' }}">{{ r.name }}</span>
+      <a href="{{ st.link }}">{{ st.title }}</a> {% if st.value %}<b>{{ st.value }}</b>{% endif %}
+      <small class="muted">с <span data-time="{{ st.fired_at.isoformat() }}Z">{{ st.fired_at.strftime("%d.%m %H:%M") }}</span></small></li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">Всё спокойно.</p>{% endif %}
+</section>
+
+<section class="card" id="rules">
+  <h3>Правила</h3>
+  {% if not rules %}
+  <p class="muted">Правил пока нет.</p>
+  {% if can_edit %}<form method="post" action="/alerts/defaults">{{ csrf() }}
+    <button class="btn btn-primary">{{ icon("plus") }} Добавить стандартные: офлайн узлов и серверов, сервисы, диск ≥ 90 %, температура ≥ 75 °C</button></form>{% endif %}
+  {% endif %}
+  {% for r in rules %}
+  <details class="sub-item">
+    <summary>{% if not r.enabled %}<span class="pill">выкл</span> {% endif %}<b>{{ r.name }}</b>
+      <small class="muted">{{ kinds[r.kind] }}{% if r.kind == "sensor" %} {{ r.sensor }} {{ r.op }}{% endif %}{% if r.threshold is not none %} {{ "≥" if r.kind != "sensor" }} {{ r.threshold | replace(".0", "") }}{% endif %}
+        · {{ r.for_minutes }} мин{% if r.target %} · только {{ r.target }}{% endif %}
+        · {{ ["колокольчик" ~ (": " ~ r.groups | map(attribute="name") | join(", ") if r.groups) if r.notify_bell, "telegram" if r.notify_telegram, "webhook" if r.notify_webhook] | select | join(", ") or "без доставки" }}</small></summary>
+    {% if can_edit %}
+    <form method="post" action="/alerts/rules/{{ r.id }}" class="form form-grid">{{ csrf() }}{{ rule_fields(r) }}
+      <div><button class="btn btn-primary btn-sm">Сохранить</button></div></form>
+    <form method="post" action="/alerts/rules/{{ r.id }}/delete">{{ csrf() }}
+      <button class="btn btn-sm btn-danger" data-confirm="Удалить правило «{{ r.name }}»?">{{ icon("trash-2") }} Удалить</button></form>
+    {% endif %}
+  </details>
+  {% endfor %}
+  {% if can_edit %}
+  <details class="card collapsible">
+    <summary>{{ icon("plus") }} Новое правило</summary>
+    <form method="post" action="/alerts/rules" class="form form-grid">{{ csrf() }}{{ rule_fields() }}
+      <div><button class="btn btn-primary">Добавить</button></div></form>
+  </details>
+  {% endif %}
+</section>
+
+{% if user.can("settings.manage") %}
+<section class="card" id="channels">
+  <h3>Каналы доставки</h3>
+  <p class="muted small">Колокольчик и браузерные уведомления — всегда. Telegram: создайте бота у @BotFather, напишите ему
+    любое сообщение и узнайте chat id (например, у @userinfobot). Webhook — ntfy.sh/своя тема, Gotify или свой адрес.
+    Панель отправляет только заголовок и короткий текст оповещения.</p>
+  <form method="post" action="/alerts/channels" class="form form-grid">{{ csrf() }}
+    <label>Токен бота Telegram<input name="telegram_token" autocomplete="off" placeholder="{{ 'задан — оставьте пустым' if ch.has_token else 'не задан' }}"></label>
+    {% if ch.has_token %}<label class="check"><input type="checkbox" name="clear_token"> Удалить токен</label>{% endif %}
+    <label>Chat ID<input name="telegram_chat" value="{{ ch.chat }}" maxlength="64"></label>
+    <label>Webhook URL<input name="webhook_url" value="{{ ch.webhook_url }}" maxlength="500" placeholder="https://ntfy.sh/моя-тема"></label>
+    <label>Формат<select name="webhook_kind"><option value="ntfy">ntfy</option><option value="json" {{ "selected" if ch.webhook_kind == "json" }}>JSON</option></select></label>
+    <div><button class="btn btn-primary btn-sm">Сохранить</button></div>
+  </form>
+  <form method="post" action="/alerts/test">{{ csrf() }}<button class="btn btn-sm">{{ icon("bell") }} Отправить проверку</button></form>
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Журнал</h3>
+  <div class="table-wrap">
+  <table class="table table-compact">
+    <thead><tr><th>Время</th><th>Состояние</th><th>Правило</th><th>Объект</th><th>Значение</th><th>Доставка</th></tr></thead>
+    <tbody>
+    {% for e in log %}
+      <tr><td data-time="{{ e.ts.isoformat() }}Z">{{ e.ts.strftime("%d.%m %H:%M") }}</td>
+        <td><span class="status {{ 'ok' if e.state == 'resolved' else ('bad' if e.severity == 'critical' else 'warn') }}">{{ "прошло" if e.state == "resolved" else "сработало" }}</span></td>
+        <td>{{ e.rule_name }}</td><td>{% if e.link %}<a href="{{ e.link }}">{{ e.title }}</a>{% else %}{{ e.title }}{% endif %}</td>
+        <td>{{ e.value }}</td><td><small class="muted">{{ e.delivered }}</small></td></tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Пока ничего не срабатывало</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

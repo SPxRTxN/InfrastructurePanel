@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block content %}
+{% include "_infra_tabs.html" %}
+<section class="card">
+  <h3>{{ icon("history") }} Удалённые серверы и узлы</h3>
+  <p class="muted small">При удалении сервер, его сервисы, узел с агентом и место на карте сети уходят сюда вместе с историей.
+    Запись хранится {{ days }} дн. (Настройки → Серверы и сервисы) и входит в бэкапы. Скачивание — JSON.</p>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Удалено</th><th>Что</th><th>Подробности</th><th>Кто</th><th>Хранится до</th><th></th></tr></thead>
+    <tbody>
+    {% for a in items %}
+      <tr><td data-time="{{ a.deleted_at.isoformat() }}Z">{{ a.deleted_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td><b>{{ a.name }}</b><br><small class="muted">{{ "сервер" if a.kind == "server" else "узел" }} · {{ a.size | bytes }}</small></td>
+        <td><small>{{ a.summary }}</small></td><td>{{ a.deleted_by or "—" }}</td>
+        <td><small>{{ expires[a.id].strftime("%Y-%m-%d") }}</small></td>
+        <td class="row">
+          <a class="btn btn-sm" href="/archive/{{ a.id }}/download">{{ icon("save") }} Скачать</a>
+          {% if user.can("servers.edit") %}
+          <form method="post" action="/archive/{{ a.id }}/delete">{{ csrf() }}
+            <button class="btn btn-sm btn-danger" title="Удалить из архива" data-confirm="Удалить «{{ a.name }}» из архива насовсем?">{{ icon("trash-2") }}</button></form>
+          {% endif %}</td></tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Архив пуст</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

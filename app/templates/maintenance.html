@@ -1,0 +1,9 @@
+{% extends "bare.html" %}
+{% from "_macros.html" import icon %}
+{% block content %}
+<div class="card empty-state">
+  <h2>{{ icon("refresh-cw") }} Технические работы</h2>
+  <p class="muted">{{ message or "Панель обновляется." }}{% if until %} Примерно до {{ until }}.{% endif %}</p>
+  <p class="muted">Агенты продолжают присылать данные. Обновите страницу позже.</p>
+</div>
+{% endblock %}

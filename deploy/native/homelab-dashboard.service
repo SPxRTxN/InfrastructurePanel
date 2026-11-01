@@ -1,0 +1,54 @@
+[Unit]
+Description=Homelab Dashboard (FastAPI, нативная установка)
+Documentation=file:///opt/homelab-dashboard/deploy/native/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=homelab-dashboard
+Group=homelab-dashboard
+# python -m app.cli ищет пакет app в рабочем каталоге
+WorkingDirectory=/opt/homelab-dashboard
+EnvironmentFile=/etc/homelab-dashboard/env
+# HOME — для ~/.ssh/known_hosts (SSH-сбор метрик); .env из каталога кода не читается
+Environment=HOME=/var/lib/homelab-dashboard HOMELAB_IGNORE_DOTENV=1 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/homelab-dashboard/.venv/bin/python -m app.cli serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+# Ресурсы. Значение по умолчанию — для узла с 2+ ГБ RAM; на Raspberry Pi 1 ГБ install.sh
+# кладёт drop-in /etc/systemd/system/homelab-dashboard.service.d/10-resources.conf с меньшим потолком.
+MemoryMax=768M
+TasksMax=128
+
+# Ограничения
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/homelab-dashboard
+# read-only, а не true: иначе psutil видит пустой /home и врёт про диск /home на этом узле
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# AF_NETLINK — psutil (сетевые интерфейсы); AF_UNIX — journald
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

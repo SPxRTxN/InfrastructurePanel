@@ -1,0 +1,30 @@
+{# Карточка сервера: s — результат monitoring.server_summary #}
+{% from "_macros.html" import icon %}
+<a class="card server-card" href="/servers/{{ s.id }}">
+  <div class="card-head">
+    <h3>{{ icon("server") }} {{ s.name }}</h3>
+    {% if not s.enabled %}<span class="pill">выключен</span>
+    {% elif s.online is none %}<span class="status">нет данных</span>
+    {% elif s.online %}<span class="status ok">онлайн</span>
+    {% else %}<span class="status bad">офлайн</span>{% endif %}
+  </div>
+  <div class="server-body">
+    <div class="ring-wrap">
+      <canvas class="ring" width="96" height="96" data-ring="{{ percent(s.ram.used, s.ram.total) if s.ram else 0 }}"></canvas>
+      <div class="ring-label"><b>{{ percent(s.ram.used, s.ram.total) if s.ram else "—" }}{{ "%" if s.ram }}</b><small>RAM</small></div>
+    </div>
+    <div class="server-meta">
+      <small class="muted">{{ s.host }} · {{ s.collector }}</small>
+      {% if s.ram %}<small>RAM: {{ s.ram.used | bytes }} / {{ s.ram.total | bytes }}, свободно {{ s.ram.free | bytes }}</small>{% endif %}
+      {% for d in s.disks[:4] %}
+      <div class="bar-row">
+        <small><b>{{ d.mount }}</b> {{ d.used | bytes }} / {{ d.size | bytes }}</small>
+        <meter class="bar" min="0" max="100" low="75" high="90" optimum="10" value="{{ percent(d.used, d.size) }}"></meter>
+      </div>
+      {% endfor %}
+      {% if s.services %}
+      <div class="chips">{% for sv in s.services %}<span class="status {{ 'ok' if sv.ok else ('bad' if sv.ok is false) }}">{{ sv.name }}</span>{% endfor %}</div>
+      {% endif %}
+    </div>
+  </div>
+</a>

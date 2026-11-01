@@ -1,0 +1,24 @@
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block settings %}
+{% if request.query_params.get("pwd") %}<div class="alert alert-ok">Пароль изменён, другие сессии завершены</div>{% endif %}
+<section class="card">
+  <h3>Профиль</h3>
+  <form method="post" action="/settings/profile" class="form">
+    {{ csrf() }}
+    <label>Логин<input value="{{ user.username }}" disabled></label>
+    <label>Отображаемое имя<input name="display_name" value="{{ user.display_name }}" maxlength="128"></label>
+    <div><button class="btn btn-primary">Сохранить</button></div>
+  </form>
+</section>
+<section class="card">
+  <h3>Смена пароля</h3>
+  <form method="post" action="/settings/profile/password" class="form">
+    {{ csrf() }}
+    <label>Текущий пароль<input type="password" name="old_password" autocomplete="current-password" required></label>
+    <label>Новый пароль<input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label>
+    <label>Повторите<input type="password" name="new_password2" autocomplete="new-password" minlength="8" required></label>
+    <div><button class="btn btn-primary">Сменить пароль</button></div>
+  </form>
+</section>
+{% endblock %}

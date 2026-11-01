@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block content %}
+<form method="post" action="{{ '/confluence/pages/%d' % page.id if page else '/confluence/pages' }}" class="card form form-wide">
+  {{ csrf() }}
+  {% if issue %}
+  <input type="hidden" name="issue" value="{{ issue.key }}">
+  <div class="alert alert-ok">{{ icon("link") }} Статья будет связана с задачей <b>{{ issue.key }}</b> — {{ issue.title }}</div>
+  {% endif %}
+  <div class="form-grid">
+    {% if page %}
+      <label>Пространство<input value="{{ space.name }}" disabled></label>
+    {% else %}
+      <label>Пространство<select name="space">
+        {% for s in spaces %}<option value="{{ s.key }}" {{ "selected" if s.id == space.id }}>{{ s.name }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+    <label>Родительская статья<select name="parent_id">
+      <option value="">— верхний уровень —</option>
+      {% for p in space.pages if not exclude or p.id not in exclude %}
+      <option value="{{ p.id }}" {{ "selected" if p.id == parent_id }}>{{ p.title }}</option>
+      {% endfor %}
+    </select></label>
+  </div>
+  <label>Заголовок<input name="title" value="{{ page.title if page else draft_title }}" required maxlength="255"></label>
+  <div class="md-editor">
+    <label>Текст (Markdown)
+      <textarea name="body" hx-post="/markdown/preview" hx-trigger="keyup changed delay:500ms, load" hx-target="next .md-preview">{{ page.body if page }}</textarea>
+    </label>
+    <div class="md-preview markdown"></div>
+  </div>
+  <div class="row">
+    <button class="btn btn-primary">{{ icon("save") }} Сохранить</button>
+    <a class="btn" href="{{ '/confluence/pages/%d' % page.id if page else '/confluence/spaces/' ~ space.key }}">Отмена</a>
+  </div>
+</form>
+{% if not page %}<p class="muted">Родительская статья выбирается из пространства, выбранного при открытии редактора.</p>{% endif %}
+{% endblock %}

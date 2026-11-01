@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Полное удаление homelab-agent с Linux:  ./uninstall-agent   (или -y — без вопроса)
+# Останавливает службу и убирает всё, что поставили start-agent / install.sh. Подробно — УДАЛЕНИЕ.md.
+# Системный Python и пакеты ОС не трогает. Токен узла после этого отзовите в панели (Узлы → Удалить).
+#
+# --from-panel — вызов от агента по команде панели (через sudo, правило ставит install.sh): без вопросов.
+# Скрипт запущен внутри службы агента, а удаление её останавливает, поэтому он сразу передаёт работу
+# отдельной transient-службе systemd (systemd-run --no-block) — она живёт вне cgroup агента. Сам скрипт копирует
+# себя в /run, потому что удаляет папку, из которой запущен.
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+MODE="${1:-}"
+
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo bash "$SELF" "$@"
+fi
+
+ROOT=/opt/homelab-agent
+
+if [ "$MODE" = "--from-panel" ]; then
+    # Только запуск: из службы агента файловая система read-only, писать здесь нельзя и не нужно
+    if command -v systemd-run >/dev/null; then
+        exec systemd-run --no-block --quiet --collector --unit=homelab-agent-uninstall \
+            /bin/bash "$SELF" --detached
+    fi
+    # Запасной путь без systemd-run (на systemd его нет только в урезанных системах): новая сессия, но cgroup
+    # прежний — остановка службы может оборвать удаление; тогда повторите ./uninstall-agent вручную
+    setsid -f bash "$SELF" --detached </dev/null >/dev/null 2>&1
+    exit 0
+fi
+
+if [ "$MODE" = "--detached" ]; then
+    # Копия в /run (хост-окружение, не private tmp службы) и запуск уже её
+    COPY="$(mktemp /run/homelab-uninstall.XXXXXX)"
+    cp -- "$SELF" "$COPY"
+    exec bash "$COPY" --do "$COPY"
+fi
+
+if [ "$MODE" = "--do" ]; then
+    trap 'rm -f -- "${2:-}"' EXIT
+    sleep 2   # дать sudo в агенте вернуться и ответу панели уйти
+elif [ "$MODE" != "-y" ]; then
+    read -r -p "Удалить homelab-agent, его конфиг и токены с этого узла? [y/N] " answer
+    [[ "$answer" =~ ^[yYдД]$ ]] || { echo "Отменено"; exit 0; }
+fi
+
+say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
+
+say "Службы"
+systemctl disable --now homelab-agent-guard.timer 2>/dev/null || true
+systemctl stop homelab-agent-guard.service 2>/dev/null || true
+systemctl disable --now homelab-agent.service 2>/dev/null || true
+systemctl disable --now homelab-vpn.service 2>/dev/null || true
+# Ссылки на юниты (новая раскладка) и обычные файлы (старая)
+rm -f /etc/systemd/system/homelab-agent.service /etc/systemd/system/homelab-vpn.service
+rm -f /etc/systemd/system/homelab-agent-guard.service /etc/systemd/system/homelab-agent-guard.timer
+rm -rf /etc/systemd/system/homelab-agent.service.d
+systemctl daemon-reload 2>/dev/null || true
+systemctl reset-failed homelab-agent.service 2>/dev/null || true
+
+say "Файлы"
+rm -f /etc/sudoers.d/homelab-agent /etc/sudoers.d/homelab-agent-update
+# Новая папка и все следы старой раскладки
+rm -rf -- "$ROOT" /etc/homelab-agent /usr/local/lib/homelab-agent /var/lib/homelab-agent
+
+say "Пользователь"
+if id homelab-agent >/dev/null 2>&1; then
+    userdel homelab-agent 2>/dev/null || true
+fi
+getent group homelab-agent >/dev/null && groupdel homelab-agent 2>/dev/null || true
+
+say "Готово. Осталось:"
+echo "  - отозвать токен узла в панели: Инфраструктура → Узлы → узел → Удалить (или «Новый токен»);"
+if [ "$MODE" != "--do" ]; then
+    echo "  - при желании удалить и этот каталог с установщиком: rm -r \"$(dirname "$SELF")\""
+fi

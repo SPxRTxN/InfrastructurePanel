@@ -1,0 +1,12 @@
+# Выполняет обновление панели по запросу из панели. Ставит tools/install-updater.sh (подставляет @DATA_DIR@, @PROJECT_DIR@).
+[Unit]
+Description=Homelab Dashboard: обновление панели по запросу
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@PROJECT_DIR@
+ExecStart=@PROJECT_DIR@/tools/update-from-panel.sh @DATA_DIR@
+# Обновление может идти долго (загрузка образа + ожидание healthy + возможный откат)
+TimeoutStartSec=1800

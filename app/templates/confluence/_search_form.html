@@ -1,0 +1,5 @@
+{% from "_macros.html" import icon %}
+<form method="get" action="/confluence/search" class="filters">
+  <input name="q" value="{{ q or '' }}" placeholder="Поиск по статьям…" class="search" maxlength="200">
+  <button class="btn">{{ icon("search") }}</button>
+</form>

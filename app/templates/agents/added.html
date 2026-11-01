@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block content %}
+<a href="/agents" class="muted">{{ icon("arrow-left") }} К агентам</a>
+{% if errors %}
+<section class="card">
+  <div class="alert alert-error">{{ icon("triangle-alert") }} Часть строк пропущена:
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
+</section>
+{% endif %}
+{% if created %}
+<section class="card">
+  <h3>{{ icon("shield") }} Создано узлов: {{ created | length }}</h3>
+  <div class="alert alert-error">{{ icon("triangle-alert") }} Токены показываются один раз — в панели хранятся только хеши. Скопируйте их сейчас.</div>
+
+  <h4>1. Скопировать агента на узлы (с сервера панели)</h4>
+  <pre><code>sudo bash {{ project_dir }}/tools/push-agent.sh{% for c in created %} {{ c.target }}{% endfor %}</code></pre>
+
+  <h4>2. На каждом узле — вписать в начало установщика и запустить</h4>
+  <p class="muted small">Linux: <code>cd ~/homelab-agent &amp;&amp; ./start-agent</code> (строки <code>TOKEN=</code>, <code>NODE=</code>, <code>PANEL_URL=</code> в начале файла).</p>
+  {% for c in created %}
+  <h4>{{ c.name }} <small class="muted">{{ c.target }}</small></h4>
+  <pre><code>TOKEN="{{ c.token }}"
+NODE="{{ c.name }}"
+PANEL_URL="{{ ws_url }}"</code></pre>
+  {% endfor %}
+  <p class="muted small">Чтобы обновлять агента из панели, на узле в <code>agent.toml</code> нужны <code>[update] enabled = true</code> и строка sudoers
+    для перезапуска (<code>packaging/sudoers.example</code>).</p>
+</section>
+{% endif %}
+{% endblock %}

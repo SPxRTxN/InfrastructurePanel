@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block content %}
+{% include "_infra_tabs.html" %}
+{% if flash %}<div class="alert alert-ok">{{ icon("circle-check") }} {{ flash }}</div>{% endif %}
+<div class="grid-cards">
+  {% for n in nodes %}
+  <a class="card server-card" href="/nodes/{{ n.id }}">
+    <div class="card-head">
+      <h3>{{ icon("cpu") }} {{ n.name }}</h3>
+      {% if n.online %}<span class="status ok">онлайн</span>{% elif n.last_seen %}<span class="status bad">офлайн</span>{% else %}<span class="status">не подключался</span>{% endif %}
+    </div>
+    <div class="server-body">
+      <div class="ring-wrap">
+        <canvas class="ring" width="96" height="96" data-ring="{{ percent(n.ram.used, n.ram.total) if n.ram else 0 }}"></canvas>
+        <div class="ring-label"><b>{{ percent(n.ram.used, n.ram.total) if n.ram else "—" }}{{ "%" if n.ram }}</b><small>RAM</small></div>
+      </div>
+      <div class="server-meta">
+        <small class="muted">{{ n.ips[0] if n.ips else (n.remote_ip or "—") }}{% if n.version %} · агент {{ n.version }}{% endif %}{% if n.server %} · {{ n.server.name }}{% endif %}</small>
+        <small>CPU {{ "%.0f"|format(n.cpu) ~ "%" if n.cpu is not none else "—" }}{% if n.temp is not none %} · {{ "%.1f"|format(n.temp) }} °C{% endif %}{% if n.load1 is not none %} · load {{ "%.2f"|format(n.load1) }}{% endif %}</small>
+        {% if n.root_disk %}
+        <div class="bar-row">
+          <small><b>{{ n.root_disk.mount }}</b> {{ n.root_disk.used | bytes }} / {{ n.root_disk.size | bytes }}</small>
+          <meter class="bar" min="0" max="100" low="75" high="90" optimum="10" value="{{ percent(n.root_disk.used, n.root_disk.size) }}"></meter>
+        </div>
+        {% endif %}
+        <small class="muted" data-time="{{ n.last_seen or '' }}">{{ n.last_seen or "" }}</small>
+      </div>
+    </div>
+  </a>
+  {% else %}
+  <section class="card"><p class="muted">Узлов пока нет. Добавьте узел — панель выдаст токен для агента <code>homelab-agent</code>.</p></section>
+  {% endfor %}
+</div>
+
+{% if user.can("servers.edit") %}
+<section class="card">
+  <h3>Новый узел</h3>
+  <form method="post" action="/nodes" class="form form-grid">
+    {{ csrf() }}
+    <label>Имя (как <code>node</code> в конфиге агента)<input name="name" required maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,63}" placeholder="raspberry-pi"></label>
+    <label>Сервер<select name="server_id">
+      <option value="new">— создать сервер со сбором «agent» —</option>
+      <option value="">— не привязывать —</option>
+      {% for s in servers %}<option value="{{ s.id }}">{{ s.name }} ({{ s.collector }})</option>{% endfor %}</select></label>
+    <label>Адрес (для нового сервера)<input name="host" maxlength="255" placeholder="192.168.1.10"></label>
+    <label class="check"><input type="checkbox" name="use_agent" checked> Брать RAM и диски выбранного сервера с агента</label>
+    {% if user.can("topology.edit") %}<label class="check"><input type="checkbox" name="on_map" checked> Новый сервер — на топологию</label>{% endif %}
+    <div><button class="btn btn-primary">{{ icon("plus") }} Добавить и получить токен</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/js/charts.js" defer></script>
+{% endblock %}

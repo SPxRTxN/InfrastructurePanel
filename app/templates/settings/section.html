@@ -1,0 +1,47 @@
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block settings %}
+{% set can_global = user.can("settings.manage") %}
+<section class="card">
+  <h3>{{ section_title }}</h3>
+  <form method="post" action="/settings/{{ section }}" class="form">
+    {{ csrf() }}
+    {% for s, value in items %}
+      {% set disabled = s.scope == "global" and not can_global %}
+      {% if s.type == "bool" %}
+        <label class="check"><input type="checkbox" name="{{ s.key }}" {{ "checked" if value }} {{ "disabled" if disabled }}> {{ s.label }}</label>
+      {% elif s.type == "choice" %}
+        <label>{{ s.label }}
+          <select name="{{ s.key }}" {{ "disabled" if disabled }}>
+            {% for v, l in s.choices %}<option value="{{ v }}" {{ "selected" if v == value }}>{{ l }}</option>{% endfor %}
+          </select>
+        </label>
+      {% elif s.type == "int" %}
+        <label>{{ s.label }}<input type="number" name="{{ s.key }}" value="{{ value }}" min="{{ s.min }}" max="{{ s.max }}" {{ "disabled" if disabled }}></label>
+      {% elif s.type == "list" %}
+        <div class="field">
+          <span>{{ s.label }} <small class="muted">— отметьте нужные, порядок меняется перетаскиванием</small></span>
+          <ul class="sortable-list" data-sortable>
+            {% set labels = dict(s.choices) %}
+            {% for v in value if v in labels %}
+            <li>{{ icon("grip-vertical", "handle") }}<label class="check"><input type="checkbox" name="{{ s.key }}" value="{{ v }}" checked> {{ labels[v] }}</label></li>
+            {% endfor %}
+            {% for v, l in s.choices if v not in value %}
+            <li>{{ icon("grip-vertical", "handle") }}<label class="check"><input type="checkbox" name="{{ s.key }}" value="{{ v }}"> {{ l }}</label></li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% else %}
+        <label>{{ s.label }}<input name="{{ s.key }}" value="{{ value }}" {{ "disabled" if disabled }}></label>
+      {% endif %}
+      {% if s.scope == "global" %}<small class="muted">Глобальная настройка{% if disabled %} — нужно право «Глобальные настройки»{% endif %}</small>{% endif %}
+    {% endfor %}
+    {% if not (items | selectattr("0.scope", "equalto", "global") | list) or can_global %}
+    <div><button class="btn btn-primary">Сохранить</button></div>
+    {% endif %}
+  </form>
+</section>
+{% block section_extra %}{% include "settings/extra_" ~ section ~ ".html" ignore missing %}{% endblock %}
+{% endblock %}
+
+{% block scripts %}<script src="/static/vendor/Sortable.min.js" defer></script>{% endblock %}

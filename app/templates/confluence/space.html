@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block actions %}{% include "confluence/_search_form.html" %}{% endblock %}
+{% block content %}
+<a href="/confluence" class="muted">{{ icon("arrow-left") }} Пространства</a>
+<div class="doc-layout">
+  {% include "confluence/_tree.html" %}
+  <section class="card">
+    <h2>{{ space.name }} <span class="pill">{{ space.key }}</span></h2>
+    <p class="muted">{{ space.description }}</p>
+    {% if user.can("confluence.edit") %}<a class="btn btn-primary" href="/confluence/new?space={{ space.key }}">{{ icon("file-plus") }} Новая статья</a>{% endif %}
+  </section>
+</div>
+{% endblock %}

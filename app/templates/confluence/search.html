@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block actions %}{% include "confluence/_search_form.html" %}{% endblock %}
+{% block content %}
+<section class="card">
+  <h3>Результаты: «{{ q }}»</h3>
+  <ul class="list-plain search-results">
+    {% for p, snippet in results %}
+    <li><div><a href="/confluence/pages/{{ p.id }}"><b>{{ p.title }}</b></a> <small class="muted">{{ p.space.name }}</small>
+      <p class="muted">{{ snippet }}{% if snippet %}…{% endif %}</p></div></li>
+    {% else %}<li class="muted">{{ "Ничего не найдено" if q else "Введите запрос" }}</li>{% endfor %}
+  </ul>
+</section>
+{% endblock %}

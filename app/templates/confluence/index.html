@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block actions %}{% include "confluence/_search_form.html" %}{% endblock %}
+{% block content %}
+<div class="grid-cards">
+  {% for s in spaces %}
+  <a class="card space-card" href="/confluence/spaces/{{ s.key }}">
+    <div class="card-head"><h3>{{ icon("folder") }} {{ s.name }}</h3><span class="pill">{{ s.key }}</span></div>
+    <p class="muted">{{ s.description or "Без описания" }}</p>
+    <small class="muted">{{ s.pages | length }} статей</small>
+  </a>
+  {% else %}
+  <div class="card empty-state"><p class="muted">Пространств пока нет.</p></div>
+  {% endfor %}
+</div>
+
+<section class="card">
+  <h3>Недавно изменённые</h3>
+  <ul class="list-plain">
+    {% for p in recent %}
+    <li><a href="/confluence/pages/{{ p.id }}">{{ icon("file-text") }} {{ p.title }}</a>
+      <small class="muted">{{ p.space.key }} · v{{ p.version }} · <span data-time="{{ p.updated_at.isoformat() }}Z"></span></small></li>
+    {% else %}<li class="muted">Пусто</li>{% endfor %}
+  </ul>
+</section>
+
+{% if user.can("confluence.edit") %}
+<section class="card">
+  <h3>Новое пространство</h3>
+  <form method="post" action="/confluence/spaces" class="form form-grid">
+    {{ csrf() }}
+    <label>Ключ<input name="key" required pattern="[A-Za-z][A-Za-z0-9]{1,15}" placeholder="HOME"></label>
+    <label>Название<input name="name" required maxlength="128"></label>
+    <label>Описание<input name="description" maxlength="1000"></label>
+    <div><button class="btn btn-primary">{{ icon("plus") }} Создать</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

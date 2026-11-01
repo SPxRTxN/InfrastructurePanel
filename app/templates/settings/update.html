@@ -1,0 +1,71 @@
+{# Настройки → Обновление. Контекст — app/routers/update.py; живой лог — app/static/js/update.js #}
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block settings %}
+<section class="card" id="update-box" data-status-url="/settings/update/status">
+  <div class="card-head">
+    <h3>{{ icon("refresh-cw") }} Обновление панели</h3>
+    <span class="muted">текущая версия <b>{{ current }}</b></span>
+  </div>
+  <p id="update-state" class="status {{ 'bad' if status and status.state == 'failed' else 'ok' if status and status.state == 'done' }}">
+    {% if update_active %}Идёт обновление до {{ version }}, примерно до {{ until }}.
+    {% elif status and status.state == "done" %}Последнее обновление выполнено (версия {{ status.version }}).
+    {% elif status and status.state == "failed" %}Последнее обновление не удалось: {{ status.error }}
+    {% else %}Обновление не запущено.{% endif %}
+  </p>
+  <p id="update-step" class="muted"></p>
+
+  <p class="small">{% if updater %}
+    <span class="status ok">служба обновления установлена</span>
+    <span class="muted">{{ updater.installed_at }}</span>
+  {% else %}
+    <span class="status bad">служба обновления не обнаружена</span>
+    <span class="muted">— она ставится сама при выкладке: <code>sudo bash tools/deploy.sh build</code> на сервере.
+      Без неё запрос на обновление будет отклонён через 10 минут.</span>
+  {% endif %}</p>
+
+  {% if not update_active %}
+  <h4>Доступные версии</h4>
+  {% if releases.error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ releases.error }}</div>{% endif %}
+  {% for r in releases.versions %}
+  <details class="sub-item" {{ "open" if loop.first and r.newer }}>
+    <summary><b>{{ r.version }}</b>
+      {% if r.newer %}<span class="pill">новее текущей</span>{% elif r.current %}<span class="pill">установлена</span>{% endif %}
+      {% if r.prerelease %}<span class="pill">предварительная</span>{% endif %}
+      <small class="muted">{{ r.published }}</small></summary>
+    <div class="markdown">{{ r.notes | markdown }}</div>
+    {% if not r.current %}
+    <form method="post" action="/settings/update/start">{{ csrf() }}<input type="hidden" name="version" value="{{ r.version }}">
+      <button class="btn btn-primary btn-sm" data-confirm="Обновить панель до {{ r.version }}? Для остальных пользователей панель закроется на технические работы (около {{ eta_min }} мин).">{{ icon("refresh-cw") }} {{ "Обновить" if r.newer else "Откатить" }} до {{ r.version }}</button></form>
+    {% endif %}
+  </details>
+  {% else %}
+  {% if not releases.error %}<p class="muted">Релизов пока нет.</p>{% endif %}
+  {% endfor %}
+  <form method="post" action="/settings/update/releases/refresh" class="row">{{ csrf() }}
+    <button class="btn btn-sm">{{ icon("refresh-cw") }} Проверить обновления</button>
+    <small class="muted">Источник: релизы GitHub <code>{{ releases.repo }}</code>{% if releases.checked %}, проверено {{ releases.checked }}{% endif %}.</small>
+  </form>
+
+  <details class="sub-item">
+    <summary class="small">Другая версия вручную</summary>
+    <form method="post" action="/settings/update/start" class="form">
+      {{ csrf() }}
+      <label>Версия (тег образа)
+        <input name="version" value="latest" pattern="(v?[0-9]+\.[0-9]+\.[0-9]+|latest)" required maxlength="32"></label>
+      <small class="muted">X.Y.Z, v1.4.0 или latest. Ожидаемая длительность около {{ eta_min }} мин.</small>
+      <div><button class="btn" data-confirm="Начать обновление? Для остальных пользователей панель закроется на технические работы.">{{ icon("refresh-cw") }} Начать обновление</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  <form method="post" action="/settings/update/cancel" id="update-cancel" {% if not can_cancel %}hidden{% endif %}>
+    {{ csrf() }}
+    <button class="btn">{{ icon("x") }} Отменить</button>
+    <small class="muted">Пока служба обновления не взяла запрос.</small>
+  </form>
+  <h4>Журнал</h4>
+  <div class="markdown"><pre id="update-log">{{ log or "Журнала пока нет." }}</pre></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/update.js" defer></script>{% endblock %}

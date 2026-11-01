@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block actions %}
+{% if user.can("servers.edit") %}<a class="btn" href="/settings/servers">{{ icon("settings") }} Управление</a>{% endif %}
+{% endblock %}
+{% block content %}
+{% include "_infra_tabs.html" %}
+<div class="grid-cards">
+  {% for s in servers %}
+    {% include "servers/_card.html" %}
+  {% else %}
+    <div class="card empty-state"><p class="muted">Серверов нет.{% if user.can("servers.edit") %} Добавьте в <a href="/settings/servers">настройках</a>.{% endif %}</p></div>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/js/charts.js" defer></script>
+{% endblock %}

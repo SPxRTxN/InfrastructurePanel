@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block content %}
+<a href="/confluence/pages/{{ page.id }}" class="muted">{{ icon("arrow-left") }} {{ page.title }}</a>
+<div class="split">
+  <div class="split-main">
+    {% if selected %}
+    <article class="card">
+      <div class="card-head">
+        <h2>{{ selected.title }} <span class="pill">v{{ selected.version }}</span></h2>
+        {% if user.can("confluence.edit") and selected.version != page.version %}
+        <form method="post" action="/confluence/pages/{{ page.id }}/restore/{{ selected.version }}">{{ csrf() }}
+          <button class="btn btn-primary btn-sm" data-confirm="Восстановить версию {{ selected.version }}? Будет создана новая версия.">{{ icon("history") }} Восстановить</button></form>
+        {% endif %}
+      </div>
+      <div class="markdown">{{ selected.body | markdown }}</div>
+    </article>
+    {% else %}
+    <div class="card empty-state"><p class="muted">Выберите версию справа</p></div>
+    {% endif %}
+  </div>
+  <aside class="split-side">
+    <section class="card">
+      <h3>Версии</h3>
+      <ul class="list-plain">
+        {% for v in page.versions %}
+        <li><a href="?v={{ v.version }}">v{{ v.version }} {% if v.version == page.version %}<span class="pill">текущая</span>{% endif %}</a>
+          <small class="muted">{{ v.author.name if v.author else "—" }} · <span data-time="{{ v.created_at.isoformat() }}Z"></span></small></li>
+        {% endfor %}
+      </ul>
+    </section>
+  </aside>
+</div>
+{% endblock %}

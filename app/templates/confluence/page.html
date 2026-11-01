@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("confluence.edit") %}
+{% block actions %}{% include "confluence/_search_form.html" %}{% endblock %}
+{% block content %}
+<div class="doc-layout">
+  {% include "confluence/_tree.html" %}
+  <div class="split-main">
+    <article class="card">
+      <div class="card-head">
+        <div>
+          <small class="muted"><a href="/confluence/spaces/{{ space.key }}">{{ space.name }}</a>{% if page.parent %} / <a href="/confluence/pages/{{ page.parent.id }}">{{ page.parent.title }}</a>{% endif %}</small>
+          <h2>{{ page.title }}</h2>
+          <small class="muted">Версия {{ page.version }} · {{ page.author.name if page.author else "—" }} · <span data-time="{{ page.updated_at.isoformat() }}Z"></span></small>
+        </div>
+        <div class="row">
+          <a class="btn btn-sm" href="/confluence/pages/{{ page.id }}/history">{{ icon("history") }} История</a>
+          {% if can_edit %}
+          <a class="btn btn-sm" href="/confluence/new?space={{ space.key }}&parent={{ page.id }}">{{ icon("file-plus") }} Дочерняя</a>
+          <a class="btn btn-sm btn-primary" href="/confluence/pages/{{ page.id }}/edit">{{ icon("pencil") }} Редактировать</a>
+          {% endif %}
+        </div>
+      </div>
+      <div class="markdown">{{ page.body | markdown }}</div>
+    </article>
+
+    {% if show_issues %}
+    <section class="card">
+      <h3>{{ icon("link") }} Связанные задачи</h3>
+      <ul class="list-plain">
+        {% for i in page.issues %}
+        <li><a href="/jira/issues/{{ i.key }}"><small class="muted">{{ i.key }}</small> {{ i.title }}</a>
+          <span class="row"><span class="pill">{{ i.column.name }}</span>
+          {% if can_edit %}<form method="post" action="/confluence/pages/{{ page.id }}/issues/{{ i.id }}/delete">{{ csrf() }}<button class="btn btn-sm" title="Отвязать">{{ icon("x") }}</button></form>{% endif %}</span></li>
+        {% else %}<li class="muted">Нет связанных задач</li>{% endfor %}
+      </ul>
+      {% if can_edit %}
+      <form method="post" action="/confluence/pages/{{ page.id }}/issues" class="filters">
+        {{ csrf() }}
+        <input name="issue" placeholder="Ключ задачи, например HL-1" required maxlength="20">
+        <button class="btn">{{ icon("link") }} Связать</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if can_edit %}
+    <form method="post" action="/confluence/pages/{{ page.id }}/delete">{{ csrf() }}
+      <button class="btn btn-sm btn-danger" data-confirm="Удалить статью «{{ page.title }}»? Дочерние статьи поднимутся на уровень выше.">{{ icon("trash-2") }} Удалить статью</button></form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% from "_macros.html" import icon %}
+<section class="widget widget-servers">
+  <div class="widget-head"><h3>Серверы</h3><a href="/servers" class="muted">Все {{ icon("chevron-right") }}</a></div>
+  <div class="grid-cards">
+    {% for s in w.servers %}
+      {% include "servers/_card.html" %}
+    {% else %}
+      <div class="card empty-state"><p class="muted">Серверов нет</p></div>
+    {% endfor %}
+  </div>
+</section>

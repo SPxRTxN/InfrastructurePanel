@@ -1,0 +1,16 @@
+#!/bin/sh
+# pre-commit: секреты и боевые данные не попадают в коммит (идея — из набора neremeev, адаптировано).
+# Включение один раз на клон: git config core.hooksPath /opt/homelab-dashboard/tools/git-hooks
+# (путь абсолютный — иначе в worktree хук не находится).
+fail() { echo "pre-commit: $*" >&2; exit 1; }
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+
+BAD=$(printf '%s\n' "$STAGED" | grep -E '(^|/)\.env($|\.)|(^|/)env\.before|^secrets/|^data/|^backups/|\.db$|\.db-(wal|shm|journal)$|\.age$|\.pem$|\.key$|\.p12$|(^|/)id_(rsa|ed25519|ecdsa)[^/]*$|^inbox/' \
+	| grep -vE '(^|/)\.env\.example$|^inbox/README\.md$|(^|/)env\.example$' || true)
+[ -n "$BAD" ] && fail "в индексе секреты или данные:
+$BAD"
+
+ADDED=$(git diff --cached -U0 --diff-filter=ACMR | grep -E '^\+' | grep -v '^+++' || true)
+LEAK=$(printf '%s\n' "$ADDED" | grep -E 'AGE-SECRET-KEY-|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{20,}|github_pat_' || true)
+[ -n "$LEAK" ] && fail "в добавленных строках похоже на ключ или токен (содержимое не показано)"
+exit 0

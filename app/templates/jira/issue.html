@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("jira.edit") %}
+{% block page_title %}<span class="muted">{{ issue.key }}</span> {{ issue.title }}{% endblock %}
+
+{% block content %}
+<a href="/jira/boards/{{ issue.board_id }}" class="muted">{{ icon("arrow-left") }} {{ issue.board.name }}</a>
+<div class="split">
+  <div class="split-main">
+    <section class="card">
+      <h3>Описание</h3>
+      <div class="markdown">{{ issue.description | markdown if issue.description else '<p class="muted">Нет описания</p>' | safe }}</div>
+    </section>
+    {% if can_edit %}
+    <details class="card collapsible" id="edit">
+      <summary>{{ icon("pencil") }} Редактировать</summary>
+      <form method="post" action="/jira/issues/{{ issue.key }}" class="form form-wide">
+        {{ csrf() }}
+        {% include "jira/_issue_fields.html" %}
+        <label>Колонка<select name="column_id">{% for c in issue.board.columns %}<option value="{{ c.id }}" {{ "selected" if c.id == issue.column_id }}>{{ c.name }}</option>{% endfor %}</select></label>
+        <div class="row">
+          <button class="btn btn-primary">{{ icon("save") }} Сохранить</button>
+        </div>
+      </form>
+      <form method="post" action="/jira/issues/{{ issue.key }}/delete">{{ csrf() }}<button class="btn btn-danger btn-sm" data-confirm="Удалить задачу {{ issue.key }}?">{{ icon("trash-2") }} Удалить задачу</button></form>
+    </details>
+    {% endif %}
+  </div>
+  <aside class="split-side">
+    <section class="card meta">
+      <dl>
+        <dt>Статус</dt><dd><span class="pill">{{ issue.column.name }}</span></dd>
+        <dt>Приоритет</dt><dd><span class="prio prio-{{ issue.priority }}">{{ priorities[issue.priority] }}</span></dd>
+        <dt>Исполнитель</dt><dd>{{ issue.assignee.name if issue.assignee else "—" }}</dd>
+        <dt>Срок</dt><dd>{{ issue.due_date.strftime("%d.%m.%Y") if issue.due_date else "—" }}</dd>
+        <dt>Метки</dt><dd class="chips">{% for l in issue.label_list %}<span class="tag">{{ l }}</span>{% else %}—{% endfor %}</dd>
+        <dt>Создана</dt><dd data-time="{{ issue.created_at.isoformat() }}Z"></dd>
+        <dt>Обновлена</dt><dd data-time="{{ issue.updated_at.isoformat() }}Z"></dd>
+      </dl>
+    </section>
+    {% include "jira/_related.html" ignore missing %}
+  </aside>
+</div>
+{% endblock %}

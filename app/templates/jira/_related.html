@@ -1,0 +1,23 @@
+{# Блок «Связанные статьи» в задаче. related — из confluence._issue_related (пусто без confluence.view). #}
+{% from "_macros.html" import icon, csrf with context %}
+{% if related %}
+<section class="card">
+  <h3>{{ icon("book-open") }} Связанные статьи</h3>
+  <ul class="list-plain">
+    {% for p in related.pages %}
+    <li><a href="/confluence/pages/{{ p.id }}">{{ p.title }}</a>
+      {% if can_edit %}<form method="post" action="/jira/issues/{{ issue.key }}/pages/{{ p.id }}/delete">{{ csrf() }}<button class="btn btn-sm" title="Отвязать">{{ icon("x") }}</button></form>{% endif %}</li>
+    {% else %}<li class="muted">Нет связанных статей</li>{% endfor %}
+  </ul>
+  {% if can_edit and related.candidates %}
+  <form method="post" action="/jira/issues/{{ issue.key }}/pages" class="row">
+    {{ csrf() }}
+    <select name="page_id">{% for p in related.candidates %}<option value="{{ p.id }}">{{ p.space.key }} / {{ p.title }}</option>{% endfor %}</select>
+    <button class="btn btn-sm">{{ icon("link") }}</button>
+  </form>
+  {% endif %}
+  {% if user.can("confluence.edit") and related.has_spaces %}
+  <a class="btn btn-primary" href="/confluence/new?issue={{ issue.key }}">{{ icon("file-plus") }} Создать артефакт</a>
+  {% endif %}
+</section>
+{% endif %}

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("servers.edit") %}
+{% block actions %}
+<a class="btn" href="/nodes/{{ n.id }}/history.json">{{ icon("save") }} История</a>
+{% if n.server %}<a class="btn" href="/servers/{{ n.server.id }}">{{ icon("server") }} {{ n.server.name }}</a>{% endif %}
+{% endblock %}
+{% block content %}
+<a href="/nodes" class="muted">{{ icon("arrow-left") }} Все узлы</a>
+
+<div class="kpis">
+  <div class="card kpi"><span class="kpi-icon">{{ icon("activity") }}</span><div>
+    <b>{% if n.online %}Онлайн{% elif n.last_seen %}Офлайн{% else %}—{% endif %}</b><small>Статус{% if n.version %} · агент {{ n.version }}{% endif %}</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("cpu") }}</span><div>
+    <b>{{ "%.0f"|format(n.cpu) ~ "%" if n.cpu is not none else "—" }}</b><small>CPU{% if n.temp is not none %} · {{ "%.1f"|format(n.temp) }} °C{% endif %}</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("memory-stick") }}</span><div>
+    <b>{{ n.ram.used | bytes if n.ram else "—" }}</b><small>RAM занято из {{ n.ram.total | bytes if n.ram else "—" }}</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("clock") }}</span><div>
+    <b data-time="{{ n.last_seen or '' }}">{{ n.last_seen or "не подключался" }}</b><small>Последние данные</small></div></div>
+</div>
+
+<section class="card">
+  <h3>Узел</h3>
+  <dl class="meta-dl">
+    <dt>IP</dt><dd>{{ n.ips | join(", ") or "—" }}{% if n.remote_ip %} <small class="muted">(подключён с {{ n.remote_ip }})</small>{% endif %}</dd>
+    {% for k, label in [("hostname", "Имя хоста"), ("os", "ОС"), ("kernel", "Ядро"), ("cpu", "Процессор"), ("threads", "Потоков")] %}
+    {% if n.info[k] %}<dt>{{ label }}</dt><dd>{{ n.info[k] }}</dd>{% endif %}{% endfor %}
+    {% if n.uptime %}<dt>Работает</dt><dd>{{ (n.uptime // 86400) | int }} д {{ ((n.uptime % 86400) // 3600) | int }} ч</dd>{% endif %}
+  </dl>
+</section>
+
+<section class="card">
+  <div class="card-head"><h3>История за 24 часа</h3></div>
+  <div id="node-charts" class="node-charts" data-history-url="/api/nodes/{{ n.id }}/history"></div>
+</section>
+
+<section class="card">
+  <h3>Диски</h3>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Раздел</th><th>Размер</th><th>Занято</th><th>Свободно</th><th class="col-wide"></th></tr></thead>
+    <tbody>
+    {% for d in n.disks %}
+      <tr><td><b>{{ d.mount }}</b>{% if d.device %}<br><small class="muted">{{ d.device }}</small>{% endif %}</td><td>{{ d.size | bytes }}</td><td>{{ d.used | bytes }}</td><td>{{ d.free | bytes }}</td>
+        <td><meter class="bar" min="0" max="100" low="75" high="90" optimum="10" value="{{ percent(d.used, d.size) }}"></meter> {{ percent(d.used, d.size) }}%</td></tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Агент не прислал данных о разделах</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card" id="actions">
+  <h3>Восстановление</h3>
+  {% if n.actions %}
+  <p class="muted small">Действия заданы в конфиге самого узла — панель передаёт только имя.</p>
+  <div class="row">
+    {% for a in n.actions %}
+    {% if can_edit %}<form method="post" action="/nodes/{{ n.id }}/actions/{{ a.name }}">{{ csrf() }}
+      <button class="btn" {{ "disabled" if not n.online }} data-confirm="Выполнить «{{ a.label }}» на {{ n.name }}?">{{ icon("refresh-cw") }} {{ a.label }}</button></form>
+    {% else %}<span class="pill">{{ a.label }}</span>{% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Узел не объявил действий. Добавьте <code>[actions.&lt;имя&gt;]</code> в конфиг агента.</p>
+  {% endif %}
+  {% if actions_log %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>Время</th><th>Действие</th><th>Результат</th><th>Вывод</th></tr></thead>
+    <tbody>{% for a in actions_log %}
+      <tr><td data-time="{{ a.requested_at.isoformat() }}Z">{{ a.requested_at }}</td><td>{{ a.name }}</td>
+        <td>{% if a.status == "ok" %}<span class="status ok">готово</span>{% elif a.status == "sent" %}<span class="status">выполняется</span>{% else %}<span class="status bad">{{ a.error or a.status }}</span>{% endif %}{% if a.code is not none %} <small class="muted">код {{ a.code }}</small>{% endif %}</td>
+        <td>{% if a.output %}<details><summary class="small">показать</summary><pre class="small">{{ a.output }}</pre></details>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+{% if events %}
+<section class="card">
+  <h3>События</h3>
+  <ul class="list-plain">{% for e in events %}
+    <li><span class="status {{ 'bad' if e.level == 'error' else ('' if e.level == 'info' else 'warn') }}">{{ e.level }}</span>
+      <small data-time="{{ e.ts.isoformat() }}Z">{{ e.ts }}</small> {{ e.text }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Датчики ({{ n.sensor_count }})</h3>
+  {% for kind, sensors in groups %}
+  <details class="sub-item"><summary>{{ kind }} <small class="muted">{{ sensors | length }}</small></summary>
+    <div class="table-wrap"><table class="table"><tbody>
+      {% for s in sensors %}<tr><td>{{ s.label }}</td><td><code>{{ s.id }}</code></td>
+        <td>{% if s.value is none %}—{% elif s.unit == "B" %}{{ s.value | int | bytes }}{% else %}{{ "%.2f"|format(s.value) | replace(".00", "") }} {{ s.unit }}{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </details>
+  {% else %}<p class="muted">Агент ещё не подключался.</p>{% endfor %}
+</section>
+
+{% if can_edit %}
+<section class="card">
+  <h3>Управление</h3>
+  <form method="post" action="/nodes/{{ n.id }}" class="form form-grid">{{ csrf() }}
+    <label>Сервер<select name="server_id">
+      <option value="">— не привязывать —</option>
+      <option value="new">— создать сервер со сбором «agent» —</option>
+      {% for s in servers %}<option value="{{ s.id }}" {{ "selected" if n.server and n.server.id == s.id }}>{{ s.name }} ({{ s.collector }})</option>{% endfor %}</select></label>
+    <label>Адрес (для нового сервера)<input name="host" maxlength="255" value="{{ n.ips[0] if n.ips }}"></label>
+    <label class="check"><input type="checkbox" name="use_agent" checked> Брать RAM и диски сервера с агента</label>
+    {% if user.can("topology.edit") %}<label class="check"><input type="checkbox" name="on_map" checked> Новый сервер — на топологию</label>{% endif %}
+    <div><button class="btn btn-primary btn-sm">Сохранить</button></div>
+  </form>
+  <div class="row">
+    <form method="post" action="/nodes/{{ n.id }}/token">{{ csrf() }}
+      <button class="btn btn-sm" data-confirm="Выдать новый токен? Старый перестанет работать.">{{ icon("shield") }} Новый токен</button></form>
+    {% if "config" in n.info.get("features", []) and n.online %}
+    <form method="post" action="/nodes/{{ n.id }}/config/get">{{ csrf() }}
+      <button class="btn btn-sm">{{ icon("settings") }} Настройки агента</button></form>
+    {% endif %}
+    <form method="post" action="/nodes/{{ n.id }}/delete">{{ csrf() }}
+      <input type="hidden" name="remove_agent" value="0">
+      <label class="check"><input type="checkbox" name="remove_agent" value="1" checked> удалить агента с узла</label>
+      <button class="btn btn-sm btn-danger" data-confirm="{{ delete_confirm }}">{{ icon("trash-2") }} Удалить{{ " везде" if n.server }}</button></form>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/js/nodes.js" defer></script>
+{% endblock %}

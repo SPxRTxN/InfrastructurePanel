@@ -1,0 +1,85 @@
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block settings %}
+{% set status_names = {"new": "добавится", "same": "совпадает", "conflict": "конфликт по имени"} %}
+
+{% if report is defined %}
+<section class="card">
+  <h3>{{ icon("circle-check") }} Импорт выполнен</h3>
+  <ul>
+  {% for name, c in report.counts.items() %}
+    <li><b>{{ sections[name] }}</b>: добавлено {{ c.added }}, заменено {{ c.replaced }}, пропущено {{ c.skipped }}</li>
+  {% endfor %}
+  </ul>
+  {% for w in report.warnings %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ w }}</div>{% endfor %}
+  {% if report.tokens %}
+  <div class="alert alert-error">{{ icon("triangle-alert") }} Новые токены узлов показываются один раз — в панели хранится только хеш. Скопируйте их сейчас.</div>
+  <div class="table-wrap"><table class="table table-compact">
+    <thead><tr><th>Узел</th><th>Токен</th></tr></thead>
+    <tbody>{% for node, token in report.tokens.items() %}
+      <tr><td>{{ node }}</td><td><input readonly value="{{ token }}" class="mono" autocomplete="off"></td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+{% elif info is defined %}
+<section class="card">
+  <h3>{{ icon("eye") }} Предпросмотр импорта</h3>
+  <p class="muted">Пакет от {{ info.exported_at }}. Пока ничего не изменено. «Пропустить» — добавить только новое,
+    существующее не трогать; «Заменить» — обновить совпавшие по имени. Ошибка при применении откатывает всё.</p>
+  {% for w in info.warnings %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ w }}</div>{% endfor %}
+  <form method="post" action="/settings/transfer/apply" class="form">
+    {{ csrf() }}
+    <input type="hidden" name="blob" value="{{ blob }}">
+    {% for name, s in info.sections.items() %}
+    <h4>{{ s.title }} <small class="muted">— новых {{ s.new }}, совпадает {{ s.same }}, конфликтов {{ s.conflict }}</small></h4>
+    <label>Что делать с конфликтами
+      <select name="strategy_{{ name }}">
+        <option value="skip" selected>Пропустить (добавить только новое)</option>
+        <option value="replace">Заменить</option>
+        <option value="off">Раздел не применять</option>
+      </select>
+    </label>
+    <div class="table-wrap"><table class="table table-compact">
+      <tbody>{% for kind, label, status in s.rows %}
+        <tr><td>{{ kind }}</td><td>{{ label }}</td><td><span class="status {{ 'ok' if status != 'conflict' else 'bad' }}">{{ status_names[status] }}</span></td></tr>
+      {% else %}<tr><td class="muted">Пусто</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% endfor %}
+    <label>Пароль пакета (ещё раз)<input type="password" name="password" required autocomplete="off" maxlength="1024"></label>
+    <div><button class="btn btn-primary" data-confirm="Применить импорт?">{{ icon("check") }} Применить</button></div>
+  </form>
+</section>
+
+{% else %}
+<section class="card">
+  <h3>{{ icon("save") }} Экспорт конфигурации</h3>
+  <p class="muted">Файл <code>.hlconf</code> зашифрован паролем (age). Он нужен, чтобы быстро поднять вторую панель.
+    Истории, журналов, задач, статей и сессий в нём нет; каналы оповещений (токен бота, webhook) не переносятся никогда.</p>
+  <form method="post" action="/settings/transfer/export" class="form">
+    {{ csrf() }}
+    {% for key, label in sections.items() %}
+    <label class="check"><input type="checkbox" name="sections" value="{{ key }}" checked> {{ label }}</label>
+    {% endfor %}
+    <label class="check"><input type="checkbox" name="passwords"> Перенести пароли (хеши) — работают только при одинаковом PASSWORD_PEPPER, иначе пароли придётся задать заново</label>
+    <label class="check"><input type="checkbox" name="same_tokens"> Те же токены узлов (хеши): агент с одним токеном подключается к обеим панелям; иначе при импорте будут выданы новые</label>
+    <p class="muted small">Путь к SSH-ключу серверов кладётся в пакет (внутри шифрования): сам ключ не переносится, его нужно скопировать отдельно.</p>
+    <label>Пароль пакета (не короче {{ min_password }} символов)<input type="password" name="password" required minlength="{{ min_password }}" maxlength="1024" autocomplete="new-password"></label>
+    <label>Пароль ещё раз<input type="password" name="password2" required minlength="{{ min_password }}" maxlength="1024" autocomplete="new-password"></label>
+    <div><button class="btn btn-primary">{{ icon("save") }} Скачать</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h3>{{ icon("file-plus") }} Импорт конфигурации</h3>
+  <p class="muted">Файл — до {{ max_kb }} КБ. Сначала предпросмотр, потом подтверждение.</p>
+  <form method="post" action="/settings/transfer/preview" enctype="multipart/form-data" class="form">
+    {{ csrf() }}
+    <label>Файл .hlconf<input type="file" name="file" accept=".hlconf" required></label>
+    <label>Пароль пакета<input type="password" name="password" required maxlength="1024" autocomplete="off"></label>
+    <div><button class="btn btn-primary">{{ icon("eye") }} Предпросмотр</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

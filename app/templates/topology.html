@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("topology.edit") %}
+{% macro device_fields(d=None) %}
+  <label>Имя<input name="name" value="{{ d.name if d }}" required maxlength="128"></label>
+  <label>Тип<select name="type">{% for k, v in types.items() %}<option value="{{ k }}" {{ "selected" if d and d.type == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>IP<input name="ip" value="{{ d.ip if d }}" maxlength="64"></label>
+  <label>MAC (для Wake-on-LAN)<input name="mac" value="{{ d.mac if d }}" maxlength="17" placeholder="aa:bb:cc:dd:ee:ff" pattern="([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}|"></label>
+  <label>Шаблон портов<select name="ports_template" class="js-ports-template"><option value="">— не менять —</option>
+    {% for k, t in port_templates.items() %}<option value="{{ k }}" data-ports="{{ t.ports | join(',') }}">{{ t.label }}</option>{% endfor %}</select></label>
+  <label>Порты (по одному в строке)<textarea name="ports" rows="3" maxlength="2000" placeholder="ether1&#10;ether2">{{ d.ports if d }}</textarea></label>
+  <label>Сегмент<select name="segment_id"><option value="">— нет —</option>
+    {% for s in segments %}<option value="{{ s.id }}" {{ "selected" if d and d.segment_id == s.id }}>{{ s.name }}</option>{% endfor %}</select></label>
+  {% if servers %}
+  <label>Сервер<select name="server_id"><option value="">— нет —</option>
+    {% for s in servers %}<option value="{{ s.id }}" {{ "selected" if d and d.server_id == s.id }}>{{ s.name }}</option>{% endfor %}</select></label>
+  {% elif d and d.server_id %}<input type="hidden" name="server_id" value="{{ d.server_id }}">{% endif %}
+  {% if user.can("servers.edit") and not (d and d.server_id) %}
+  <label class="check"><input type="checkbox" name="make_server"> Добавить в «Серверы» для мониторинга (если сервер выше не выбран)</label>{% endif %}
+  <label>Описание<input name="description" value="{{ d.description if d }}" maxlength="1000"></label>
+{% endmacro %}
+
+{% block actions %}
+{% if can_edit %}<span class="muted small">Перетаскивайте узлы — позиции сохраняются</span>
+<button class="btn btn-sm" type="button" id="topo-link-mode" aria-pressed="false">{{ icon("link") }} Связать</button>{% endif %}
+<select id="topo-seg-filter" aria-label="Фильтр по сегменту"><option value="">Все сегменты</option>
+  {% for s in segments %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}<option value="none">Без сегмента</option></select>
+<button class="btn btn-sm" type="button" id="topo-fit">{{ icon("layout-dashboard") }} Вписать</button>
+{% endblock %}
+
+{% block content %}
+{% include "_infra_tabs.html" %}
+<div class="topology-layout">
+  <section class="card topo-card">
+    <div id="topology" {{ "data-editable" if can_edit }}></div>
+    <div class="topo-legend">
+      <span class="status ok">сервер онлайн</span><span class="status bad">офлайн</span><span class="status">нет данных</span>
+    </div>
+  </section>
+  <aside class="split-side">
+    <section class="card" id="topo-info">
+      <h3>Устройство</h3>
+      <p class="muted">Выберите узел на схеме</p>
+    </section>
+    {% if can_edit %}
+    <details class="card collapsible">
+      <summary>{{ icon("plus") }} Новое устройство</summary>
+      <form method="post" action="/topology/devices" class="form">{{ csrf() }}{{ device_fields() }}
+        <div><button class="btn btn-primary">Добавить</button></div></form>
+    </details>
+    <details class="card collapsible">
+      <summary>{{ icon("link") }} Новая связь</summary>
+      <form method="post" action="/topology/links" class="form">{{ csrf() }}
+        <div class="form-grid two">
+          <label>Устройство A<select name="a_id">{% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+          <label>Порт A<input name="a_port" maxlength="32" placeholder="ether2"></label>
+          <label>Устройство B<select name="b_id">{% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+          <label>Порт B<input name="b_port" maxlength="32"></label>
+        </div>
+        <label>Тип связи<select name="kind"><option value="wired">Проводная</option><option value="wifi">Wi-Fi</option></select></label>
+        <label>Подпись<input name="label" maxlength="128" placeholder="1 Гбит/с"></label>
+        <div><button class="btn btn-primary">Связать</button></div>
+      </form>
+    </details>
+    <details class="card collapsible" id="topo-segments">
+      <summary>{{ icon("network") }} Сегменты ({{ segments | length }})</summary>
+      <ul class="list-plain" id="seg-list">
+        {% for s in segments %}
+        <li data-seg="{{ s.id }}" data-name="{{ s.name }}" data-color="{{ s.color }}" data-subnet="{{ s.subnet }}" data-description="{{ s.description }}">
+          <small><span class="seg-dot" data-color="{{ s.color }}"></span> {{ s.name }}{% if s.subnet %} · {{ s.subnet }}{% endif %}</small>
+          <span class="row"><button class="btn btn-sm" type="button" data-seg-edit="{{ s.id }}" title="Изменить">{{ icon("pencil") }}</button>
+          <button class="btn btn-sm" type="button" data-seg-delete="{{ s.id }}" title="Удалить сегмент (устройства останутся)">{{ icon("trash-2") }}</button></span></li>
+        {% endfor %}
+      </ul>
+      <form class="form" id="seg-form" autocomplete="off">
+        <input type="hidden" name="id">
+        <div class="form-grid two">
+          <label>Имя<input name="name" maxlength="64" required></label>
+          <label>Цвет<input name="color" type="color" value="#3b82f6"></label>
+          <label>Подсеть / VLAN<input name="subnet" maxlength="64" placeholder="192.168.1.0/24"></label>
+          <label>Описание<input name="description" maxlength="500"></label>
+        </div>
+        <div class="row"><button class="btn btn-primary btn-sm">Сохранить сегмент</button>
+          <button class="btn btn-sm" type="button" id="seg-reset">Сбросить</button></div>
+        <p class="muted small" id="seg-msg" role="status"></p>
+      </form>
+    </details>
+    <details class="card collapsible">
+      <summary>{{ icon("pencil") }} Устройства ({{ devices | length }})</summary>
+      {% for d in devices %}
+      <details class="sub-item" id="device-{{ d.id }}">
+        <summary>{{ d.name }} <small class="muted">{{ d.ip }}</small></summary>
+        <form method="post" action="/topology/devices/{{ d.id }}" class="form">{{ csrf() }}{{ device_fields(d) }}
+          <div class="row"><button class="btn btn-primary btn-sm">Сохранить</button></div></form>
+        <form method="post" action="/topology/devices/{{ d.id }}/delete">{{ csrf() }}
+          {% if d.server %}
+          <input type="hidden" name="remove_agent" value="0">
+          <label class="check"><input type="checkbox" name="remove_agent" value="1" checked> удалить агента с узла</label>
+          <button class="btn btn-sm btn-danger" data-confirm="Это сервер «{{ d.server.name }}»: удалить его везде — с карты, из «Серверов» и «Узлов»? История попадёт в архив.">{{ icon("trash-2") }} Удалить везде</button></form>
+          {% else %}
+          <button class="btn btn-sm btn-danger" data-confirm="Удалить устройство {{ d.name }} и его связи?">{{ icon("trash-2") }} Удалить</button></form>
+          {% endif %}
+      </details>
+      {% endfor %}
+    </details>
+    <details class="card collapsible">
+      <summary>{{ icon("network") }} Связи ({{ links | length }})</summary>
+      <ul class="list-plain">
+        {% for l in links %}
+        <li><small>{{ l.a.name }}{% if l.a_port %} ({{ l.a_port }}){% endif %} — {{ l.b.name }}{% if l.b_port %} ({{ l.b_port }}){% endif %}{% if l.label %} · {{ l.label }}{% endif %}</small>
+          <form method="post" action="/topology/links/{{ l.id }}/delete">{{ csrf() }}<button class="btn btn-sm" title="Удалить связь">{{ icon("x") }}</button></form></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </aside>
+</div>
+{% if can_edit %}
+<dialog id="topo-link-dialog" class="topo-dialog">
+  <form id="topo-link-form" class="form" method="dialog">
+    <h3 id="tl-title">Новая связь</h3>
+    <label>Тип связи<select name="kind"><option value="wired">Проводная</option><option value="wifi">Wi-Fi</option></select></label>
+    <div class="form-grid two">
+      <label id="tl-a">Порт A</label>
+      <label id="tl-b">Порт B</label>
+    </div>
+    <label>Подпись<input name="label" maxlength="128" placeholder="1 Гбит/с"></label>
+    <p class="muted small" id="tl-msg" role="status"></p>
+    <div class="row"><button class="btn btn-primary" value="ok">Связать</button>
+      <button class="btn" type="button" id="tl-cancel">Отмена</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/cytoscape.min.js" defer></script>
+<script src="/static/js/topology.js" defer></script>
+{% endblock %}

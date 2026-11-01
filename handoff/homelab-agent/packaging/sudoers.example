@@ -1,0 +1,25 @@
+# /etc/sudoers.d/homelab-agent — права агента на действия восстановления.
+# Ставить так (visudo проверит синтаксис, ошибка в sudoers ломает sudo целиком):
+#   sudo visudo -f /etc/sudoers.d/homelab-agent
+#   sudo chmod 0440 /etc/sudoers.d/homelab-agent
+#
+# Правила:
+#  - ровно те команды, что в [actions.*] agent.toml (argv = ["sudo", "-n", "systemctl", "restart", "nginx.service"]);
+#  - полный путь к программе и все аргументы, без * и без ALL;
+#  - никаких редакторов, оболочек, интерпретаторов и `systemctl edit`.
+
+homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx.service
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart docker.service
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart xray.service
+
+# Эти две строки install.sh сам ставит в тот же файл /etc/sudoers.d/homelab-agent (блок «managed», проверка visudo;
+# ваши правила выше/ниже блока он не трогает):
+#  - перезапуск агента (обновление и настройки из панели);
+#  - удаление агента по команде панели ([remote] uninstall = false на узле это выключает логически, но не sudo —
+#    чтобы убрать и право, удалите вторую строку).
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart homelab-agent.service
+# homelab-agent ALL=(root) NOPASSWD: /opt/homelab-agent/bin/uninstall-agent --from-panel
+
+# VPN узла ([vpn] enabled = true, install.sh --vpn): только перезапуск и остановка своей службы
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart homelab-vpn.service
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl stop homelab-vpn.service

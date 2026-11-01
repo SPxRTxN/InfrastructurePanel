@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block actions %}
+<a class="btn" href="/servers/{{ s.id }}/history.json">{{ icon("save") }} История</a>
+{% if user.can("servers.edit") %}
+<form method="post" action="/servers/{{ s.id }}/check">{{ csrf() }}<button class="btn">{{ icon("refresh-cw") }} Проверить сейчас</button></form>
+<form method="post" action="/servers/{{ s.id }}/delete">{{ csrf() }}
+  <input type="hidden" name="remove_agent" value="0">
+  <label class="check"><input type="checkbox" name="remove_agent" value="1" checked> удалить агента с узла</label>
+  <button class="btn btn-danger" data-confirm="{{ delete_confirm }}">{{ icon("trash-2") }} Удалить везде</button></form>
+{% endif %}
+{% endblock %}
+{% block content %}
+<a href="/servers" class="muted">{{ icon("arrow-left") }} Все серверы</a>
+{% if device %}<a href="/topology" class="muted">· {{ icon("network") }} на карте сети: {{ device.name }}</a>{% endif %}
+
+<div class="kpis">
+  <div class="card kpi"><span class="kpi-icon">{{ icon("activity") }}</span><div>
+    <b>{% if s.online %}Онлайн{% elif s.online is false %}Офлайн{% else %}—{% endif %}</b><small>Статус</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("wifi" if s.ssh_ok else "wifi-off") }}</span><div>
+    <b>{{ "доступен" if s.ssh_ok else ("недоступен" if s.ssh_ok is false else "—") }}</b><small>SSH {{ s.host }}:{{ s.ssh_port }}</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("memory-stick") }}</span><div>
+    <b>{{ s.ram.used | bytes if s.ram else "—" }}</b><small>RAM занято из {{ s.ram.total | bytes if s.ram else "—" }}</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("clock") }}</span><div>
+    <b data-time="{{ s.last_checked or '' }}">{{ s.last_checked or "не проверялся" }}</b><small>Последняя проверка</small></div></div>
+</div>
+{% if s.last_error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ s.last_error }}</div>{% endif %}
+
+<section class="card">
+  <div class="card-head"><h3>История за 24 часа</h3></div>
+  <div class="chart-box"><canvas id="history-chart" data-history-url="/api/servers/{{ s.id }}/history"></canvas></div>
+</section>
+
+<section class="card">
+  <h3>Диски</h3>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Раздел</th><th>Размер</th><th>Занято</th><th>Свободно</th><th class="col-wide"></th></tr></thead>
+    <tbody>
+    {% for d in s.disks %}
+      <tr><td><b>{{ d.mount }}</b>{% if d.device %}<br><small class="muted">{{ d.device }}</small>{% endif %}</td><td>{{ d.size | bytes }}</td><td>{{ d.used | bytes }}</td><td>{{ d.free | bytes }}</td>
+        <td><meter class="bar" min="0" max="100" low="75" high="90" optimum="10" value="{{ percent(d.used, d.size) }}"></meter> {{ percent(d.used, d.size) }}%</td></tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Нет данных</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h3>Сервисы</h3>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Имя</th><th>Проверка</th><th>Адрес</th><th>Статус</th><th></th></tr></thead>
+    <tbody>
+    {% for sv in s.services %}
+      <tr><td>{{ sv.name }}</td><td>{{ sv.check_type }}</td><td><code>{{ sv.target }}</code></td>
+        <td>{% if sv.ok %}<span class="status ok">доступен</span>{% elif sv.ok is false %}<span class="status bad">недоступен</span>{% else %}<span class="status">—</span>{% endif %}</td>
+        <td>{% if user.can("servers.edit") %}<form method="post" action="/services/{{ sv.id }}/delete">{{ csrf() }}<button class="btn btn-sm btn-danger" data-confirm="Удалить сервис?">{{ icon("trash-2") }}</button></form>{% endif %}</td></tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Сервисов нет</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if user.can("servers.edit") %}
+  <form method="post" action="/servers/{{ s.id }}/services" class="form form-grid">
+    {{ csrf() }}
+    <label>Имя<input name="name" required maxlength="128"></label>
+    <label>Тип<select name="check_type"><option value="tcp">tcp</option><option value="http">http</option></select></label>
+    <label>Адрес<input name="target" required placeholder="host:port или https://…" maxlength="500"></label>
+    <div><button class="btn btn-primary">{{ icon("plus") }} Добавить</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/js/charts.js" defer></script>
+{% endblock %}

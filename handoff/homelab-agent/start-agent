@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Установка и запуск homelab-agent на Linux одной командой:  ./start-agent
+#
+# 1. Впишите токен узла ниже (панель → Инфраструктура → Узлы → добавить узел) — или оставьте пустым,
+#    тогда скрипт спросит его (ввод не отображается).
+# 2. Запустите ./start-agent — он сам поставит Python, создаст службу systemd с автозапуском после
+#    перезагрузки, запишет токен в /opt/homelab-agent/etc/token-main (0600) и сотрёт его из этого файла.
+# Повторный запуск безопасен: обновит код агента, при новом токене — заменит токен.
+# Удаление — ./uninstall-agent (подробно в УДАЛЕНИЕ.md).
+
+TOKEN=""
+NODE=""                                        # пусто — имя хоста; должно совпадать с именем узла в панели
+PANEL_URL="ws://192.168.1.39:8000/agent/ws"   # адрес панели; за HTTPS-прокси — wss://…
+OLED="auto"                                    # auto (есть /dev/i2c-*) | yes | no
+
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+HERE="$(dirname "$SELF")"
+PREFIX=/opt/homelab-agent            # вся установка в этой папке (bin/ etc/ app/ state/ systemd/)
+ETC="$PREFIX/etc"
+APP="$PREFIX/app"
+OLD_ETC=/etc/homelab-agent           # раскладка до единой папки: install.sh --upgrade её переносит
+APP_USER=homelab-agent
+
+say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
+die() { echo "ОШИБКА: $*" >&2; exit 1; }
+
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo bash "$SELF" "$@"
+fi
+command -v systemctl >/dev/null && [ -d /run/systemd/system ] \
+    || die "нужен systemd (Debian/Ubuntu/Raspberry Pi OS, Arch, Fedora, openSUSE). Для OpenRC/Alpine — вручную, см. README.md"
+
+# --- Python 3.11+ с venv ---
+python_ok() { command -v python3 >/dev/null && python3 -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; }
+if ! python_ok; then
+    say "Ставлю Python"
+    if command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq python3 python3-venv
+    elif command -v pacman >/dev/null; then pacman -S --needed --noconfirm python
+    elif command -v dnf >/dev/null; then dnf install -y -q python3
+    elif command -v zypper >/dev/null; then zypper --non-interactive install python3
+    else die "не знаю пакетный менеджер — поставьте Python 3.11+ с модулем venv вручную"
+    fi
+    python_ok || die "Python 3.11+ с venv так и не нашёлся (python3 --version)"
+fi
+
+# --- Токен ---
+if [ -z "$TOKEN" ] && [ ! -s "$ETC/token-main" ] && [ ! -s "$OLD_ETC/token-main" ]; then
+    read -r -s -p "Токен узла из панели (ввод не виден): " TOKEN; echo
+    [ -n "$TOKEN" ] || die "токен пустой"
+fi
+# Токены панели — base64url; другое значит, что скопировалось не то (и не даём подставить кавычки/переводы строк)
+[ -z "$TOKEN" ] || [[ "$TOKEN" =~ ^[A-Za-z0-9_-]{20,200}$ ]] || die "токен похож на неверный — скопируйте его заново"
+[ -z "$NODE" ] || [[ "$NODE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die "NODE: латиница, цифры, . _ -"
+[[ "$PANEL_URL" =~ ^wss?://[A-Za-z0-9.:_/-]+$ ]] || die "PANEL_URL должен начинаться с ws:// или wss://"
+
+# --- Установка или обновление кода и службы ---
+FRESH=0
+{ [ -f "$ETC/agent.toml" ] || [ -f "$OLD_ETC/agent.toml" ]; } || FRESH=1
+ARGS=()
+# Уже установлено (любая раскладка) — обновляем и переносим старую раскладку в единую папку
+{ [ -d "$PREFIX/homelab_agent" ] || [ -L "$PREFIX/current" ] || [ -L "$APP/current" ] || [ -f "$OLD_ETC/agent.toml" ]; } && ARGS+=(--upgrade)
+case "$OLED" in
+    yes) ARGS+=(--display) ;;
+    auto) compgen -G "/dev/i2c-*" >/dev/null && ARGS+=(--display) ;;
+esac
+HOMELAB_AGENT_QUIET=1 bash "$HERE/packaging/install.sh" "${ARGS[@]}"
+
+if [ -n "$TOKEN" ]; then
+    say "Токен → $ETC/token-main"
+    (umask 077; printf '%s\n' "$TOKEN" > "$ETC/token-main")
+    chown "$APP_USER:$APP_USER" "$ETC/token-main"
+    # Токен больше не нужен в этом файле: стираем, чтобы он не лежал в домашнем каталоге
+    sed -i 's/^TOKEN=.*/TOKEN=""/' "$SELF"
+fi
+
+if [ "$FRESH" -eq 1 ]; then
+    NODE="${NODE:-$(hostname -s 2>/dev/null || cat /etc/hostname)}"
+    say "Конфиг: узел $NODE, панель $PANEL_URL"
+    sed -i "s|^node = .*|node = \"$NODE\"|; 0,/^url = .*/s||url = \"$PANEL_URL\"|" "$ETC/agent.toml"
+    case "$PANEL_URL" in wss://*) sed -i 's/^insecure = true .*$//' "$ETC/agent.toml" ;; esac
+else
+    echo "  $ETC/agent.toml уже есть — не трогаю (изменить: sudoedit $ETC/agent.toml)"
+fi
+
+say "Проверка конфига"
+(cd "$APP/current" && runuser -u "$APP_USER" -- .venv/bin/python -m homelab_agent -c "$ETC/agent.toml" --check-config)
+
+say "Служба с автозапуском"
+systemctl enable homelab-agent >/dev/null 2>&1
+systemctl restart homelab-agent
+sleep 8
+journalctl -u homelab-agent -n 8 --no-pager -o cat || true
+if journalctl -u homelab-agent --since "-15s" -o cat | grep -q "подключено"; then
+    say "Готово: агент подключён к панели и запустится сам после перезагрузки"
+else
+    echo "Агент запущен, но подключения к панели ещё не видно. Смотрите: journalctl -u homelab-agent -f"
+    echo "  bad token — не совпадают имя узла (node в $ETC/agent.toml) или токен; ошибка соединения — адрес панели."
+fi

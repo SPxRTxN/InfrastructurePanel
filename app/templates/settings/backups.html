@@ -1,0 +1,81 @@
+{# Настройки → Бэкапы. Контекст — app/routers/backups.py #}
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block settings %}
+{% if flash %}<div class="card"><p>{{ icon("circle-check") }} {{ flash }}</p></div>{% endif %}
+
+{% if not configured %}
+<section class="card">
+  <h3>{{ icon("triangle-alert") }} Каталог бэкапов не задан</h3>
+  <p>Автоматические бэкапы выключены. Чтобы включить, добавьте в <code>.env</code> переменную
+    <code>BACKUP_DIR</code> (лучше каталог на другом диске, чем БД) и перезапустите панель.
+    Для шифрования копий задайте <code>BACKUP_AGE_RECIPIENT</code> (публичный ключ age).
+    Вручную бэкап можно сделать командой <code>python -m app.cli backup</code>.</p>
+</section>
+{% else %}
+<div class="kpis">
+  <div class="card kpi"><span class="kpi-icon">{{ icon("save") }}</span><div>
+    <b>{% if last_ok %}{{ last_ok.ts.strftime("%Y-%m-%d %H:%M") }}{% else %}нет{% endif %}</b>
+    <small>Последний удачный бэкап (UTC){% if last_ok %}, {{ last_ok.size // 1024 }} КБ{% endif %}</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("clock") }}</span><div>
+    <b>{% if next_run %}{{ next_run.strftime("%Y-%m-%d %H:%M") }}{% else %}выключено{% endif %}</b>
+    <small>Следующий запуск (время сервера)</small></div></div>
+  <div class="card kpi"><span class="kpi-icon">{{ icon("shield") }}</span><div>
+    <b>{% if not verify %}не проверялось{% elif verify.verify_ok %}успешно{% else %}не прошла{% endif %}</b>
+    <small>Проверка восстановления{% if verify %} ({{ verify.ts.strftime("%Y-%m-%d %H:%M") }} UTC){% endif %}</small></div></div>
+</div>
+
+<section class="card">
+  <h3>Состояние</h3>
+  <p>Каталог: <code>{{ backup_dir }}</code></p>
+  <p>
+    {% if age %}<span class="pill">шифрование age</span>{% else %}<span class="pill">без age</span>{% endif %}
+    {% if encrypted %}<span class="pill">БД зашифрована SQLCipher</span>{% endif %}
+  </p>
+  {% if last and not last.ok %}<p class="status bad">Последняя попытка не удалась: {{ last.error }}</p>{% endif %}
+  {% if verify and verify.verify_detail %}<p><small class="muted">{{ verify.verify_detail }}</small></p>{% endif %}
+  <div class="row">
+    <form method="post" action="/settings/backups/run">{{ csrf() }}
+      <button class="btn btn-primary">{{ icon("save") }} Сделать бэкап сейчас</button></form>
+    <form method="post" action="/settings/backups/verify">{{ csrf() }}
+      <button class="btn">{{ icon("shield") }} Проверить восстановление</button></form>
+  </div>
+  <small class="muted">Проверка делается на свежей временной копии до шифрования (панель не знает секретный
+    ключ age и не может открыть готовый .age): копия открывается, проходит integrity_check, число строк
+    сверяется с рабочей БД, на копии применяются миграции. Раз в неделю — вместе с плановым бэкапом.</small>
+</section>
+
+<section class="card">
+  <h3>Расписание</h3>
+  <form method="post" action="/settings/backups" class="form">
+    {{ csrf() }}
+    <label class="check"><input type="checkbox" name="enabled" {{ "checked" if s.enabled }}> Делать бэкап раз в сутки</label>
+    <label>Час запуска (0–23, время сервера)<input type="number" name="hour" value="{{ s.hour }}" min="0" max="23"></label>
+    <label>Хранить копий<input type="number" name="keep" value="{{ s.keep }}" min="1" max="365"></label>
+    <div><button class="btn btn-primary">Сохранить</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h3>Журнал</h3>
+  <div class="table-wrap">
+  <table class="table table-compact">
+    <thead><tr><th>Время (UTC)</th><th>Что</th><th>Файл</th><th>КБ</th><th>Итог</th><th>Восстановление</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><td>{{ r.ts.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+        <td>{{ "бэкап" if r.kind == "backup" else "проверка" }} <small class="muted">{{ "вручную" if r.trigger == "manual" else "по расписанию" }}</small></td>
+        <td>{{ r.file or "—" }}</td><td>{{ r.size // 1024 if r.size else "—" }}</td>
+        <td>{% if r.kind == "backup" %}<span class="status {{ 'ok' if r.ok else 'bad' }}">{{ "успех" if r.ok else "ошибка" }}</span>{% endif %}
+          {% if r.error %}<small>{{ r.error }}</small>{% endif %}</td>
+        <td>{% if r.verified %}<span class="status {{ 'ok' if r.verify_ok else 'bad' }}">{{ "успешно" if r.verify_ok else "не прошла" }}</span>
+          <small class="muted">{{ r.verify_detail }}</small>{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Пусто</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

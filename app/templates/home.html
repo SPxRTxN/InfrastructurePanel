@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block content %}
+<div class="widgets">
+  {% for name, data in widgets %}
+    {% with w = data %}{% include "home/" ~ name ~ ".html" %}{% endwith %}
+  {% else %}
+    <div class="card empty-state"><p class="muted">Нет доступных виджетов. Настройте их в <a href="/settings/home">настройках</a>.</p></div>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/js/charts.js" defer></script>
+{% endblock %}

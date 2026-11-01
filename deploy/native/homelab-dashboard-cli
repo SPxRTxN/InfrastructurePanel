@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# python -m app.cli от имени службы и с её окружением (как в юните). Ставится в /usr/local/sbin.
+#   sudo homelab-dashboard-cli backup
+#   sudo homelab-dashboard-cli create-admin
+#   sudo homelab-dashboard-cli encrypt-db      # при остановленной службе
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "запустите через sudo" >&2; exit 1; }
+set -a
+# shellcheck disable=SC1091
+. /etc/homelab-dashboard/env
+set +a
+export HOME=/var/lib/homelab-dashboard HOMELAB_IGNORE_DOTENV=1 PYTHONDONTWRITEBYTECODE=1
+cd /opt/homelab-dashboard
+exec runuser -u homelab-dashboard -- /opt/homelab-dashboard/.venv/bin/python -m app.cli "$@"

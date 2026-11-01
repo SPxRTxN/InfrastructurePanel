@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set status_text = {"sent": "отправлено", "switching": "переключено, ждём агента", "done": "обновлено",
+                      "failed": "не удалось", "unconfirmed": "не подтвердилось", "rolled_back": "откат"} %}
+{% set status_class = {"done": "ok", "failed": "bad", "unconfirmed": "bad", "rolled_back": "bad"} %}
+{% block content %}
+{% include "_infra_tabs.html" %}
+
+<section class="card">
+  <h3>{{ icon("refresh-cw") }} Версии агента</h3>
+  <p class="muted small">
+    {% if newest %}Последняя версия в каталоге — <b>{{ newest.version }}</b>.{% else %}Каталог пуст.{% endif %}
+    Узел обновляется сам: скачивает архив с панели по своему токену, сверяет SHA-256, ставит рядом, проверяет новую версию
+    (самотест на своём конфиге) и только потом переключается; не поднялась — сторож возвращает прежнюю. Узлу нужно
+    <code>[update] enabled = true</code> в конфиге агента.</p>
+  <div class="table-wrap"><table class="table table-compact">
+    <thead><tr><th>Версия</th><th>Размер</th><th>SHA-256</th><th>Заметки</th><th>Загружена</th><th></th></tr></thead>
+    <tbody>
+    {% for r in releases %}
+      <tr><td><b>{{ r.version }}</b></td><td>{{ r.size | bytes }}</td><td><code title="{{ r.sha256 }}">{{ r.sha256[:12] }}…</code></td>
+        <td>{{ r.notes }}</td>
+        <td><span data-time="{{ r.uploaded_at.isoformat() }}Z">{{ r.uploaded_at.strftime("%d.%m.%Y %H:%M") }}</span></td>
+        <td>{% if user.can("settings.manage") %}<form method="post" action="/agents/releases/{{ r.id }}/delete">{{ csrf() }}
+          <button class="btn btn-sm btn-danger" data-confirm="Удалить версию {{ r.version }} из каталога?">{{ icon("trash-2") }}</button></form>{% endif %}</td></tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Версий нет. Загрузите архив агента ниже или командой <code>python -m app.cli agent-release add файл.tar.gz</code>.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% if user.can("settings.manage") %}
+  <details class="card collapsible" {{ "open" if not releases }}>
+    <summary>{{ icon("plus") }} Загрузить архив агента</summary>
+    <form method="post" action="/agents/releases" enctype="multipart/form-data" class="form form-grid">{{ csrf() }}
+      <label>Архив .tar.gz (с <code>homelab_agent/__init__.py</code>)<input type="file" name="archive" required accept=".gz,.tgz,application/gzip"></label>
+      <label>Версия (необязательно, сверяется с архивом)<input name="version" maxlength="32" placeholder="0.2.0"></label>
+      <label>Заметки<input name="notes" maxlength="500"></label>
+      <div><button class="btn btn-primary">Загрузить</button></div>
+    </form>
+  </details>
+  {% endif %}
+</section>
+
+<section class="card" id="nodes">
+  <h3>{{ icon("cpu") }} Агенты на узлах</h3>
+  {% if user.can("servers.edit") %}<form method="post" action="/agents/update">{{ csrf() }}{% endif %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th></th><th>Узел</th><th>Версия</th><th>Состояние</th><th>Обновление</th><th>Последнее</th><th></th></tr></thead>
+      <tbody>
+      {% for n in nodes %}
+        <tr>
+          <td>{% if user.can("servers.edit") %}<input type="checkbox" name="node_id" value="{{ n.id }}" aria-label="Выбрать {{ n.name }}">{% endif %}</td>
+          <td><a href="/nodes/{{ n.id }}">{{ n.name }}</a></td>
+          <td>{{ n.version or "—" }}{% if n.outdated %} <span class="status bad">доступно обновление {{ newest.version }}</span>{% endif %}</td>
+          <td>{% if n.online %}<span class="status ok">онлайн</span>{% elif n.last_seen %}<span class="status bad">офлайн</span>{% else %}<span class="status">не подключался</span>{% endif %}</td>
+          <td>{% if n.can_update %}<span class="status ok">умеет</span>{% else %}<span class="muted small">не включено (<code>[update]</code>)</span>{% endif %}</td>
+          <td>{% if n.last_update %}<span class="status {{ status_class.get(n.last_update.status, '') }}">{{ status_text.get(n.last_update.status, n.last_update.status) }}</span>
+            <small class="muted">{{ n.last_update.from_version or "?" }} → {{ n.last_update.to_version }}</small>
+            {% if n.last_update.detail %}<br><small class="muted">{{ n.last_update.detail }}</small>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{% if user.can("servers.edit") %}<button class="btn btn-sm" formaction="/agents/update/{{ n.id }}" {{ "disabled" if not releases }}>Обновить</button>{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="muted">Узлов нет — добавьте ниже.</td></tr>
+      {% endfor %}
+      </tbody></table></div>
+    {% if user.can("servers.edit") %}
+    <div class="row">
+      <label>Версия <select name="release_id" required>
+        {% for r in releases %}<option value="{{ r.id }}">{{ r.version }}{{ " (последняя)" if r == newest }}</option>{% endfor %}</select></label>
+      <button class="btn btn-primary" {{ "disabled" if not releases }} data-confirm="Обновить выбранные узлы до выбранной версии? Старшая версия в списке — это откат.">Обновить выбранные</button>
+    </div>
+    <p class="muted small">Версию старше текущей можно выбрать — это откат; если она ещё лежит на узле, скачивание не нужно.
+      Узел перезапустится сам; не вернулся с новой версией за 5 минут — «не подтвердилось».</p>
+    </form>
+    {% endif %}
+</section>
+
+<section class="card" id="log">
+  <h3>{{ icon("history") }} Журнал обновлений</h3>
+  <div class="table-wrap"><table class="table table-compact">
+    <thead><tr><th>Когда</th><th>Узел</th><th>Версии</th><th>Итог</th><th>Подробности</th></tr></thead>
+    <tbody>
+    {% for u in log %}
+      <tr><td><span data-time="{{ u.requested_at.isoformat() }}Z">{{ u.requested_at.strftime("%d.%m %H:%M") }}</span></td>
+        <td>{{ u.node.name }}</td><td>{{ u.from_version or "?" }} → {{ u.to_version }}</td>
+        <td><span class="status {{ status_class.get(u.status, '') }}">{{ status_text.get(u.status, u.status) }}</span></td>
+        <td>{{ u.detail }}</td></tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Обновлений ещё не было.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+</section>
+
+{% if user.can("servers.edit") %}
+<section class="card" id="add">
+  <h3>{{ icon("plus") }} Добавить узлы списком</h3>
+  <p class="muted small">По строке на узел: <code>имя user@host</code>. Панель создаст узлы и токены (показываются один раз) и выдаст
+    команду копирования агента. Сама по SSH панель не ходит — запускаете команды вы.</p>
+  <form method="post" action="/agents/nodes" class="form">{{ csrf() }}
+    <label>Узлы<textarea name="targets" rows="5" required maxlength="20000" placeholder="raspberry-pi pi@192.168.1.10&#10;nas admin@192.168.1.20"></textarea></label>
+    <div><button class="btn btn-primary">Создать узлы и токены</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,3 @@
+# Разработка и тесты
+-r requirements-display.txt
+pytest==8.3.4

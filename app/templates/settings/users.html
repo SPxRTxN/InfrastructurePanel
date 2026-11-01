@@ -1,0 +1,61 @@
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block settings %}
+<section class="card">
+  <h3>Пользователи</h3>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Логин</th><th>Имя</th><th>Группы</th><th>Активен</th><th>Новый пароль</th><th></th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td><b>{{ u.username }}</b></td>
+        <td><input form="u{{ u.id }}" name="display_name" value="{{ u.display_name }}" maxlength="128"></td>
+        <td class="chips">
+          {% for g in groups %}
+          <label class="chip"><input form="u{{ u.id }}" type="checkbox" name="groups" value="{{ g.id }}" {{ "checked" if g in u.groups }}> {{ g.name }}</label>
+          {% endfor %}
+        </td>
+        <td><input form="u{{ u.id }}" type="checkbox" name="is_active" {{ "checked" if u.is_active }}></td>
+        <td><input form="u{{ u.id }}" type="password" name="password" autocomplete="new-password" placeholder="не менять"></td>
+        <td class="row">
+          <form id="u{{ u.id }}" method="post" action="/settings/users/{{ u.id }}">{{ csrf() }}<button class="btn btn-sm" title="Сохранить">{{ icon("save") }}</button></form>
+          {% if u.id != user.id %}
+          <form method="post" action="/settings/users/{{ u.id }}/delete">{{ csrf() }}
+            <button class="btn btn-sm btn-danger" title="Удалить" data-confirm="Удалить пользователя {{ u.username }}? Его группы, настройки и уведомления удалятся, в задачах и статьях исполнитель и автор станут пустыми. Отменить нельзя — если пользователь может понадобиться, лучше снимите «Активен».">{{ icon("trash-2") }}</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+<section class="card">
+  <h3>Новый пользователь</h3>
+  <form method="post" action="/settings/users" class="form form-grid">
+    {{ csrf() }}
+    <label>Логин<input name="username" required maxlength="64" autocomplete="off"></label>
+    <label>Имя<input name="display_name" maxlength="128"></label>
+    <label>Пароль<input type="password" name="password" minlength="8" required autocomplete="new-password"></label>
+    <div class="chips">{% for g in groups %}<label class="chip"><input type="checkbox" name="groups" value="{{ g.id }}"> {{ g.name }}</label>{% endfor %}</div>
+    <div><button class="btn btn-primary">{{ icon("plus") }} Создать</button></div>
+  </form>
+</section>
+<section class="card">
+  <div class="card-head"><h3>Журнал входов</h3><a class="btn btn-sm" href="/settings/security">{{ icon("shield") }} Весь журнал и сессии</a></div>
+  <div class="table-wrap">
+  <table class="table table-compact">
+    <thead><tr><th>Время (UTC)</th><th>Логин</th><th>IP</th><th>Результат</th></tr></thead>
+    <tbody>
+    {% for a in log %}
+      <tr><td>{{ a.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td><td>{% if a.username %}{{ a.username }}{% else %}<span class="muted">неизвестный логин</span>{% endif %}</td><td>{{ a.ip }}</td>
+        <td><span class="status {{ 'ok' if a.success else 'bad' }}">{{ {"ok": "успех", "bad_credentials": "неверные данные", "locked": "заблокирован", "ip_locked": "IP заблокирован", "inactive": "отключён"}.get(a.reason, a.reason) }}</span></td></tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">Пусто</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

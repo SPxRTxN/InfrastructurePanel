@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Рабочий конфиг узла и токены — только на узле
+agent.toml
+token-*
+*.token
+.obsidian/
