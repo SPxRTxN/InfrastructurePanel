@@ -68,7 +68,7 @@ def test_delete_anywhere_removes_everywhere(admin, db, bundle, where):
 
 def test_confirm_text_lists_everything(admin, db, bundle):
     server = bundle[0]
-    text = admin.get(f"/servers/{server.id}").text
+    text = admin.get(f"/servers/{server.id}/settings", follow_redirects=True).text  # → настройки на странице узла
     assert "узел с агентом «pi»" in text and "«Pi» на карте сети" in text and "Удалить везде" in text
 
 

@@ -11,8 +11,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import __version__
 from app.config import BASE_DIR, config
 from app.db import SessionLocal, check_db_encryption, secure_db_files
-from app.routers import (agent_updates, alerts, archive, auth, backups, calendar, confluence, home, jira, markdown,
-                         nodes, notifications, servers, settings, topology, transfer, update, vpn)
+from app.routers import (agent_updates, alerts, archive, auth, backups, calendar, confluence, console, home, jira,
+                         markdown, nodes, notifications, recordings, servers, settings, topology, transfer, update, vpn)
 from app.services import agent_updates as agent_updates_service
 from app.services import maintenance
 from app.services.permissions import ensure_default_admin, ensure_default_groups
@@ -68,7 +68,7 @@ app = FastAPI(title="Homelab Dashboard", docs_url=None, redoc_url=None, openapi_
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
 
 # transfer и backups — раньше settings: иначе общий /settings/{section} перехватит их адреса
-for r in (auth, home, notifications, transfer, backups, update, settings, servers, nodes, agent_updates, alerts, vpn,
+for r in (auth, home, notifications, transfer, backups, update, recordings, settings, servers, console, nodes, agent_updates, alerts, vpn,
           archive, jira,
           confluence, calendar, topology, markdown):
     app.include_router(r.router)

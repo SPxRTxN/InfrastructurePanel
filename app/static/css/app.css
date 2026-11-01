@@ -291,6 +291,10 @@ meter.bar::-moz-meter-bar { background: linear-gradient(90deg, var(--accent), va
 
 /* ---------- Общие блоки страниц ---------- */
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Модальное окно подтверждения («Удалить везде») */
+.dialog { max-width: 460px; width: calc(100% - 32px); padding: 20px; color: var(--text); background: var(--card);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .tabs a { padding: 7px 14px; border-radius: 10px; color: var(--muted); border: 1px solid transparent; }
@@ -394,6 +398,50 @@ details > summary::-webkit-details-marker { display: none; }
 .md-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .md-editor textarea { min-height: 260px; font-family: ui-monospace, monospace; font-size: 13px; }
 .md-preview { border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); padding: 12px; min-height: 260px; overflow: auto; margin-top: 22px; }
+
+/* ---------- SSH-консоль ---------- */
+.console-card { margin-top: 12px; display: grid; gap: 12px; }
+.console-login { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: end; }
+.console-hint { margin: 0; font-size: 13px; }
+.console-status:empty { display: none; }
+.console-status.bad { color: var(--bad); }
+/* Терминал всегда тёмный: цвета ANSI рассчитаны на тёмный фон */
+.console-manual[hidden] { display: none; }
+.console-placeholder { height: 100%; display: grid; place-content: center; justify-items: center; gap: 10px;
+  color: #9ca3af; text-align: center; }
+.console-placeholder .console-placeholder-icon { width: 64px; height: 64px; color: var(--accent); }
+.console-placeholder pre { margin: 0; font: 15px/1.4 ui-monospace, "DejaVu Sans Mono", monospace; color: #e5e7eb; }
+.console-placeholder .prompt { color: #4ade80; }
+.console-placeholder .cursor { display: inline-block; width: 9px; height: 17px; vertical-align: text-bottom;
+  background: #e5e7eb; animation: console-blink 1s steps(1) infinite; }
+.console-placeholder p { margin: 0; font-size: 14px; }
+@keyframes console-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .console-placeholder .cursor { animation: none; } }
+#upload-progress { width: 100%; }
+.console-term { height: min(70vh, 640px); background: #000; border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 6px; overflow: hidden; }
+.console-term[hidden] { display: none; }
+/* Вкладки терминалов — как в браузере: прижаты к верхнему краю окна консоли, активная сливается с ним */
+.term-bar { display: flex; align-items: flex-end; gap: 6px; margin-bottom: -12px; }
+.term-tabs { display: flex; gap: 2px; overflow-x: auto; min-width: 0; flex: 0 1 auto; }
+.term-tab { display: flex; align-items: center; flex: 0 0 auto; max-width: 180px; border-radius: 8px 8px 0 0;
+  background: var(--bg-elev); border: 1px solid var(--border); border-bottom: 0; }
+.term-tab.active { background: #000; border-color: var(--border-strong); }
+.term-tab-label { background: none; border: 0; color: var(--muted); padding: 6px 4px 6px 12px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: inherit; font-size: 13px; }
+.term-tab.active .term-tab-label { color: #e5e7eb; }
+.term-tab-label::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 6px; background: var(--muted); vertical-align: middle; }
+.term-tab[data-state="open"] .term-tab-label::before { background: var(--ok, #22c55e); }
+.term-tab[data-state="connecting"] .term-tab-label::before { background: var(--warn, #f59e0b); }
+.term-tab[data-state="closed"] .term-tab-label::before { background: var(--bad); }
+.term-tab-close { background: none; border: 0; color: var(--muted); padding: 4px 8px 4px 2px; cursor: pointer; }
+.term-tab-close:hover { color: var(--text, #fff); }
+.term-tab-close .icon, .term-add .icon { width: 14px; height: 14px; }
+.term-add { flex: 0 0 auto; background: none; border: 1px dashed var(--border-strong); color: var(--muted);
+  border-radius: 8px; padding: 4px 8px; margin-bottom: 4px; cursor: pointer; }
+.term-add:disabled { opacity: .4; cursor: not-allowed; }
+#console-connect { margin-left: auto; margin-bottom: 4px; }
 
 /* ---------- Адаптивность ---------- */
 @media (max-width: 900px) {

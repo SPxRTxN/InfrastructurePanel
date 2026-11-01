@@ -2,7 +2,7 @@
 
 Запуск:  .venv/bin/python tools/audit.py [--offline] [--no-tests] [--write-vendor-hashes]
 Код выхода: 0 — нет FAIL, 1 — есть FAIL (подходит для CI). WARN не валит запуск.
-Ручная часть — в Obsidian/Чек-листы/.
+Ручная часть — чек-лист в README, раздел «Безопасность».
 """
 import argparse
 import hashlib

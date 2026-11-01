@@ -1,0 +1,34 @@
+{# Настройки → Записи консоли. Контекст — app/routers/recordings.py #}
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon %}
+{% block settings %}
+<section class="card">
+  <h3>{{ icon("terminal") }} Записи консоли</h3>
+  <p class="muted">Записывается только вывод терминала, ввод — никогда. Режим, лимит и срок хранения —
+    «Безопасность». Закреплённые записи по сроку не удаляются.</p>
+  <form method="get" action="/settings/recordings" class="row">
+    <label>Сервер <select name="server">
+      <option value="0">Все</option>
+      {% for s in servers %}<option value="{{ s.id }}" {{ "selected" if s.id == server_id }}>{{ s.name }}</option>{% endfor %}
+    </select></label>
+    <button class="btn">{{ icon("filter") }} Показать</button>
+  </form>
+  {% if rows %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>Сервер</th><th>Кто</th><th>Когда (UTC)</th><th>Длительность</th><th>Размер</th><th></th></tr></thead>
+    <tbody>
+    {% for x in rows %}{% set r = x.r %}
+      <tr>
+        <td>{{ r.server_name }}</td><td>{{ r.username }}</td>
+        <td>{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>{{ x.seconds // 60 }}:{{ "%02d" | format(x.seconds % 60) }}</td>
+        <td>{{ (r.bytes / 1024) | round(1) }} КБ</td>
+        <td>{% if r.pinned %}<span class="pill">{{ icon("save") }} закреплена</span> {% endif %}
+          <a class="btn" href="/settings/recordings/{{ r.id }}">Открыть</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">Записей нет.</p>{% endif %}
+</section>
+{% endblock %}

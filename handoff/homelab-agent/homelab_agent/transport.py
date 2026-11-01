@@ -21,7 +21,8 @@ from .config import PanelConfig
 
 log = logging.getLogger(__name__)
 
-HelloFactory = Callable[[str], dict]
+TUNNEL_OUT_LIMIT = 64  # сообщений tunnel_data (до 32 КБ каждое) в ожидании отправки
+HelloFactory =Callable[[str], dict]
 ActionHandler = Callable[[str, str], Awaitable[dict]]
 
 
@@ -44,7 +45,8 @@ class PanelClient:
                  welcome_timeout: float = 15.0, on_vpn: Callable[[dict], Awaitable[dict]] | None = None,
                  on_wol: Callable[[dict], Awaitable[dict]] | None = None,
                  on_update: Callable[["PanelClient", dict], Awaitable[None]] | None = None,
-                 on_remote: Callable[["PanelClient", dict], Awaitable[None]] | None = None):
+                 on_remote: Callable[["PanelClient", dict], Awaitable[None]] | None = None,
+                 tunnels=None):
         self.cfg = pcfg
         self.name = pcfg.name
         self.hello_factory = hello_factory
@@ -53,6 +55,9 @@ class PanelClient:
         self.on_wol = on_wol  # None — [wol] не включён, сообщения wol игнорируются
         self.on_update = on_update  # None — [update] не включён, сообщения update игнорируются
         self.on_remote = on_remote  # config_get / config_set / uninstall; None — установка старой раскладкой
+        self.tunnels = tunnels  # TunnelManager; None - [terminal] не включён
+        self.tunnel_out: deque[dict] = deque()  # tunnel_* к панели: отдельно от выборок и control, чтобы не мешать им
+        self._tunnel_turn = False  # отправитель чередует туннель и выборки
         self.backoff_min, self.backoff_max, self.bad_token_max = backoff_min, backoff_max, bad_token_max
         self.welcome_timeout = welcome_timeout
         self.buffer: deque[dict] = deque(maxlen=max(1, pcfg.buffer))  # выборки
@@ -72,6 +77,17 @@ class PanelClient:
     def send_control(self, msg: dict) -> None:
         self.control.append(msg)
         self._poke()
+
+    def put_tunnel(self, msg: dict) -> None:
+        """tunnel_opened / tunnel_close: короткие, без ожидания."""
+        self.tunnel_out.append(msg)
+        self._poke()
+
+    async def send_tunnel(self, msg: dict) -> None:
+        """tunnel_data: очередь ограничена - пока она полна, сеанс не читает сокет (давление уходит в TCP)."""
+        while len(self.tunnel_out) >= TUNNEL_OUT_LIMIT:
+            await asyncio.sleep(0.02)
+        self.put_tunnel(msg)
 
     def _poke(self):
         if self._wake is not None:
@@ -144,6 +160,9 @@ class PanelClient:
             finally:
                 sender.cancel()
                 await asyncio.gather(sender, return_exceptions=True)
+                self.tunnel_out.clear()
+                if self.tunnels is not None:
+                    self.tunnels.gone(self)  # обрыв связи с панелью - все сеансы туннеля закрываются
             if sender.done() and not sender.cancelled() and sender.exception():
                 raise sender.exception()
 
@@ -168,7 +187,11 @@ class PanelClient:
                 await ws.send(protocol.encode(msg))
                 if self.control and self.control[0] is msg:
                     self.control.popleft()
+            elif self.tunnel_out and (self._tunnel_turn or not self.buffer):
+                self._tunnel_turn = False
+                await ws.send(protocol.encode(self.tunnel_out.popleft()))
             elif self.buffer:
+                self._tunnel_turn = True
                 msg = self.buffer[0]
                 await ws.send(protocol.encode(msg))
                 # Убираем из буфера только после успешной отправки
@@ -206,6 +229,11 @@ class PanelClient:
             task = asyncio.create_task(self.on_remote(self, msg))
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
+        elif kind.startswith("tunnel_"):
+            if self.tunnels is not None:
+                self.tunnels.handle(self, msg)
+            elif kind == "tunnel_open" and isinstance(msg.get("id"), str) and len(msg["id"]) <= 32:
+                self.send_control({"type": "tunnel_opened", "id": msg["id"], "ok": False, "detail": "disabled"})
         elif kind == "summary":
             self.summary = {
                 "online": msg.get("online") if isinstance(msg.get("online"), int) else None,

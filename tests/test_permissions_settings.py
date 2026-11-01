@@ -84,8 +84,8 @@ def test_invalid_setting_rejected(user):
 
 
 def test_global_setting_needs_settings_manage(user, admin, db):
-    assert user.post("/settings/servers", data={"servers.check_interval": "30"}).status_code == 403
-    assert admin.post("/settings/servers", data={"servers.check_interval": "30"},
+    assert user.post("/settings/intervals", data={"servers.check_interval": "30"}).status_code == 403
+    assert admin.post("/settings/intervals", data={"servers.check_interval": "30"},
                       follow_redirects=False).status_code == 303
     assert get_setting(db, "servers.check_interval") == 30
 
@@ -103,5 +103,5 @@ def test_sidebar_toggle(user, db):
 
 def test_pages_render(admin):
     for url in ["/", "/settings/profile", "/settings/users", "/settings/groups", "/settings/appearance",
-                "/settings/home", "/settings/calendar", "/settings/servers"]:
+                "/settings/home", "/settings/calendar", "/settings/intervals", "/alerts", "/vpn", "/archive"]:
         assert admin.get(url).status_code == 200, url

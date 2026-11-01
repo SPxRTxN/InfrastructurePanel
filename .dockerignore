@@ -1,5 +1,5 @@
 # Белый список: в образ попадает только то, что нужно для запуска.
-# .env, data/, .git, .venv, tests/, Obsidian/, design/ остаются снаружи.
+# .env, data/, .git, .venv, tests/, design/ и база знаний остаются снаружи.
 *
 !app/
 !migrations/

@@ -16,7 +16,7 @@ from app.services.permissions import PERMISSIONS
 from app.services.security import MIN_PASSWORD_LEN, hash_password, verify_password
 from app.services.settings_registry import REGISTRY, SECTIONS, coerce, get_setting, section_values, set_setting
 from app.utils import utcnow
-from app.web import current_user, load_session, render, require
+from app.web import current_user, load_session, render, require, templates
 
 router = APIRouter(prefix="/settings")
 
@@ -25,13 +25,17 @@ NAV = [
     ("profile", "Профиль", None),
     ("users", "Пользователи", "users.manage"),
     ("groups", "Группы и права", "users.manage"),
-    ("servers", "Серверы и сервисы", "servers.view"),
     ("appearance", "Внешний вид", None),
     ("home", "Главная", None),
     ("calendar", "Календарь", None),
+    ("intervals", "Интервалы и хранение", "settings.manage"),
+    ("alerts", "Оповещения", "servers.view"),
+    ("vpn", "VPN", "settings.manage"),
+    ("archive", "Архив", "servers.view"),
     ("modules", "Разделы", "settings.manage"),
     ("security", "Безопасность", "users.manage"),
     ("backups", "Бэкапы", "settings.manage"),
+    ("recordings", "Записи консоли", "settings.manage"),
     ("transfer", "Перенос", "settings.manage"),
     ("update", "Обновление", "settings.manage"),
 ]
@@ -40,8 +44,21 @@ NAV = [
 SECTION_EXTRA: dict[str, callable] = {}
 
 
+# Разделы настроек со своими адресами (не /settings/...): оповещения, VPN, архив
+EXTERNAL = {"alerts": "/alerts", "vpn": "/vpn", "archive": "/archive"}
+
+
+def settings_nav(user: User) -> list:
+    return [n for n in NAV if n[2] is None or user.can(n[2])]
+
+
+# Для страниц /alerts, /vpn, /archive: их роутеры сами nav не передают, раскладка берёт его отсюда
+templates.env.globals["settings_nav"] = settings_nav
+templates.env.globals["settings_external"] = EXTERNAL
+
+
 def _page(request, db, user, tpl, section, status_code=200, **ctx):
-    nav = [n for n in NAV if n[2] is None or user.can(n[2])]
+    nav = settings_nav(user)
     return render(request, tpl, {"nav": nav, "section": section, "title": "Настройки", **ctx}, user, db,
                   status_code=status_code)
 
@@ -358,7 +375,7 @@ def sessions_revoke_others(request: Request, user: User = Depends(require("users
 def _section_page(request, db, user, section, error="", status_code=200):
     if section not in SECTIONS:
         _not_found()
-    if section == "servers" and not (user.can("servers.view") or user.can("settings.manage")):
+    if section == "intervals" and not user.can("settings.manage"):
         raise HTTPException(403, "Недостаточно прав")
     if section == "security" and not user.can("users.manage"):
         raise HTTPException(403, "Недостаточно прав")

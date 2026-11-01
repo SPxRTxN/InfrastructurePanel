@@ -1,14 +1,18 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, csrf, flash with context %}
+{# flash импортирован под другим именем: у страниц оповещений своя переменная flash (текст), её нельзя затирать #}
+{% from "_macros.html" import icon, csrf, flash as _flash with context %}
 {% block content %}
+{# Оповещения, VPN и архив — разделы настроек со своими адресами; nav для них даёт глобальная settings_nav #}
+{% set nav_items = nav if nav is defined else settings_nav(user) %}
+{% set cur = section if section is defined else active_tab.lstrip("/") %}
 <div class="settings">
   <nav class="card subnav">
-    {% for slug, label, perm in nav %}
-    <a href="/settings/{{ slug }}" class="{{ 'active' if section == slug }}">{{ label }}</a>
+    {% for slug, label, perm in nav_items %}
+    <a href="{{ settings_external.get(slug, '/settings/' ~ slug) }}" class="{{ 'active' if cur == slug }}">{{ label }}</a>
     {% endfor %}
   </nav>
   <div class="settings-body">
-    {{ flash(error, "Сохранено" if request.query_params.get("saved") else "") }}
+    {{ _flash(error, "Сохранено" if request.query_params.get("saved") else "") }}
     {% block settings %}{% endblock %}
   </div>
 </div>

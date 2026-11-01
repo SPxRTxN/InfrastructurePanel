@@ -45,6 +45,11 @@ document.addEventListener("click", e => {
   const btn = e.target.closest("[data-confirm]");
   if (btn && !confirm(btn.dataset.confirm)) e.preventDefault();
   if (e.target.closest("[data-back]")) history.back();
+  // Модальное окно (<dialog>): открыть по data-dialog-open="id", закрыть кнопкой «Отмена» или кликом по фону
+  const open = e.target.closest("[data-dialog-open]");
+  if (open) document.getElementById(open.dataset.dialogOpen)?.showModal();
+  if (e.target.closest("[data-dialog-close]")) e.target.closest("dialog")?.close();
+  else if (e.target.tagName === "DIALOG") e.target.close();
 });
 
 // ---------- Сортируемые списки (настройки виджетов) ----------

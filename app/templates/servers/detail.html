@@ -1,13 +1,11 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, csrf with context %}
+{% from "_macros.html" import icon %}
+{# Только информация. Вся настройка (правка, доступ, сервисы, удаление) — в настройках узла #}
 {% block actions %}
+{% if user.can("servers.console") %}<a class="btn" href="/servers/{{ s.id }}/console">{{ icon("terminal") }} Консоль</a>{% endif %}
 <a class="btn" href="/servers/{{ s.id }}/history.json">{{ icon("save") }} История</a>
 {% if user.can("servers.edit") %}
-<form method="post" action="/servers/{{ s.id }}/check">{{ csrf() }}<button class="btn">{{ icon("refresh-cw") }} Проверить сейчас</button></form>
-<form method="post" action="/servers/{{ s.id }}/delete">{{ csrf() }}
-  <input type="hidden" name="remove_agent" value="0">
-  <label class="check"><input type="checkbox" name="remove_agent" value="1" checked> удалить агента с узла</label>
-  <button class="btn btn-danger" data-confirm="{{ delete_confirm }}">{{ icon("trash-2") }} Удалить везде</button></form>
+<a class="btn" href="{{ '/nodes/%d#settings' % node.id if node else '/servers/%d/settings' % s.id }}">{{ icon("settings") }} Настройки узла</a>
 {% endif %}
 {% endblock %}
 {% block content %}
@@ -26,10 +24,12 @@
 </div>
 {% if s.last_error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ s.last_error }}</div>{% endif %}
 
+{% if node %}
 <section class="card">
-  <div class="card-head"><h3>История за 24 часа</h3></div>
-  <div class="chart-box"><canvas id="history-chart" data-history-url="/api/servers/{{ s.id }}/history"></canvas></div>
+  <div class="card-head"><h3>История датчиков узла <a href="/nodes/{{ node.id }}" class="muted small">{{ node.name }}</a></h3></div>
+  <div id="node-charts" class="node-charts" data-history-url="/api/nodes/{{ node.id }}/history"></div>
 </section>
+{% endif %}
 
 <section class="card">
   <h3>Диски</h3>
@@ -52,30 +52,22 @@
   <h3>Сервисы</h3>
   <div class="table-wrap">
   <table class="table">
-    <thead><tr><th>Имя</th><th>Проверка</th><th>Адрес</th><th>Статус</th><th></th></tr></thead>
+    <thead><tr><th>Имя</th><th>Проверка</th><th>Адрес</th><th>Статус</th></tr></thead>
     <tbody>
     {% for sv in s.services %}
       <tr><td>{{ sv.name }}</td><td>{{ sv.check_type }}</td><td><code>{{ sv.target }}</code></td>
         <td>{% if sv.ok %}<span class="status ok">доступен</span>{% elif sv.ok is false %}<span class="status bad">недоступен</span>{% else %}<span class="status">—</span>{% endif %}</td>
-        <td>{% if user.can("servers.edit") %}<form method="post" action="/services/{{ sv.id }}/delete">{{ csrf() }}<button class="btn btn-sm btn-danger" data-confirm="Удалить сервис?">{{ icon("trash-2") }}</button></form>{% endif %}</td></tr>
+      </tr>
     {% else %}
-      <tr><td colspan="5" class="muted">Сервисов нет</td></tr>
+      <tr><td colspan="4" class="muted">Сервисов нет</td></tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
-  {% if user.can("servers.edit") %}
-  <form method="post" action="/servers/{{ s.id }}/services" class="form form-grid">
-    {{ csrf() }}
-    <label>Имя<input name="name" required maxlength="128"></label>
-    <label>Тип<select name="check_type"><option value="tcp">tcp</option><option value="http">http</option></select></label>
-    <label>Адрес<input name="target" required placeholder="host:port или https://…" maxlength="500"></label>
-    <div><button class="btn btn-primary">{{ icon("plus") }} Добавить</button></div>
-  </form>
-  {% endif %}
 </section>
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/chart.umd.min.js" defer></script>
 <script src="/static/js/charts.js" defer></script>
+{% if node %}<script src="/static/js/nodes.js" defer></script>{% endif %}
 {% endblock %}

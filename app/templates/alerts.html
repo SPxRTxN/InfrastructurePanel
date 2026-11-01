@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "settings/_layout.html" %}
 {% from "_macros.html" import icon, csrf with context %}
 {% set can_edit = user.can("servers.edit") %}
 {% macro rule_fields(r=None) %}
@@ -20,8 +20,7 @@
   <label class="check"><input type="checkbox" name="notify_webhook" {{ "checked" if r and r.notify_webhook }}> Webhook</label>
 {% endmacro %}
 
-{% block content %}
-{% include "_infra_tabs.html" %}
+{% block settings %}
 {% if flash %}<div class="alert alert-ok">{{ icon("circle-check") }} {{ flash }}</div>{% endif %}
 
 <section class="card">

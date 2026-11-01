@@ -5,15 +5,18 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Device, Link, Node, Server, Service, User
+from app.routers import console
 from app.routers.auth import safe_next
 from app.routers.home import kpi, widget
-from app.routers.settings import SECTION_EXTRA
 from app.services import agent_remote, agents, audit, infra, monitoring
 from app.services.security import encrypt
 from app.utils import utcnow
 from app.web import json_download, render, require
 
 router = APIRouter()
+
+
+KINDS = ("server", "pc", "other")
 
 
 def _get_server(db: Session, server_id: int) -> Server:
@@ -33,8 +36,10 @@ def _apply_form(server: Server, form) -> None:
         port = 0
     if not name or not host or len(name) > 128 or len(host) > 255:
         raise HTTPException(400, "Укажите имя и адрес")
-    if not 1 <= port <= 65535 or collector not in ("local", "ssh", "agent"):
-        raise HTTPException(400, "Неверный порт или способ сбора")
+    kind = form.get("kind", server.kind or "server")
+    if not 1 <= port <= 65535 or collector not in ("local", "ssh", "agent") or kind not in KINDS:
+        raise HTTPException(400, "Неверный порт, способ сбора или тип")
+    server.kind = kind
     server.name, server.host, server.ssh_port, server.collector = name, host, port, collector
     server.ssh_user = str(form.get("ssh_user", "")).strip()[:64]
     server.enabled = form.get("enabled") == "on"
@@ -54,17 +59,44 @@ def _back(form, default: str) -> RedirectResponse:
 @router.get("/servers")
 def servers_page(request: Request, user: User = Depends(require("servers.view")), db: Session = Depends(get_db)):
     servers = [monitoring.server_summary(db, s) for s in db.scalars(select(Server).order_by(Server.name))]
-    return render(request, "servers/list.html", {"title": "Серверы", "servers": servers}, user, db)
+    # Для формы «Новый сервер»: к какому устройству топологии он подключён
+    devices = db.scalars(select(Device).order_by(Device.name)).all() if user.can("topology.edit") else None
+    return render(request, "servers/list.html", {"title": "Серверы", "servers": servers, "devices": devices}, user, db)
 
 
 @router.get("/servers/{server_id}")
 def server_page(server_id: int, request: Request, user: User = Depends(require("servers.view")),
                 db: Session = Depends(get_db)):
+    """Только информация: статус, RAM, диски, история, сервисы, датчики узла. Настройка — в настройках узла."""
     server = _get_server(db, server_id)
     device = db.scalar(select(Device).where(Device.server_id == server.id)) if user.can("topology.view") else None
+    node = db.scalar(select(Node).where(Node.server_id == server.id).order_by(Node.id))
     return render(request, "servers/detail.html",
                   {"title": server.name, "s": monitoring.server_summary(db, server), "device": device,
-                   "delete_confirm": infra.what_goes(db, server)}, user, db)
+                   "node": node}, user, db)
+
+
+def settings_context(db: Session, user: User, server: Server, back: str, delete_action: str) -> dict:
+    """Контекст фрагмента servers/_settings.html. Входы и ключи хостов — только с правом servers.console."""
+    access = None
+    if user.can("servers.console"):
+        access = console.access_info(server)
+        access["bmc_hosts"] = {c["host"] for c in access["creds"] if c["kind"] == "bmc"}
+    return {"srv": server, "access": access, "settings_back": back, "delete_action": delete_action,
+            "delete_text": infra.what_goes(db, server),
+            "with_agent": db.scalar(select(Node.id).where(Node.server_id == server.id)) is not None}
+
+
+@router.get("/servers/{server_id}/settings")
+def server_settings_page(server_id: int, request: Request, user: User = Depends(require("servers.edit")),
+                         db: Session = Depends(get_db)):
+    """Настройки сервера без агента (local/ssh). У сервера с узлом настройки живут на странице узла."""
+    server = _get_server(db, server_id)
+    node = db.scalar(select(Node).where(Node.server_id == server.id).order_by(Node.id))
+    if node:
+        return RedirectResponse(f"/nodes/{node.id}#settings", 303)
+    ctx = settings_context(db, user, server, f"/servers/{server.id}/settings", f"/servers/{server.id}/delete")
+    return render(request, "servers/settings.html", {"title": f"Настройки · {server.name}", **ctx}, user, db)
 
 
 # ---------- API (только чтение) ----------
@@ -92,7 +124,7 @@ async def server_create(request: Request, user: User = Depends(require("servers.
     if form.get("on_map") == "on" and user.can("topology.edit"):
         _place_on_map(db, server, str(form.get("uplink_id", "")))
     db.commit()
-    return _back(form, "/settings/servers")
+    return _back(form, "/servers")
 
 
 def _place_on_map(db: Session, server: Server, uplink_raw: str) -> None:
@@ -111,7 +143,7 @@ async def server_update(server_id: int, request: Request, user: User = Depends(r
     form = await request.form()
     _apply_form(server, form)
     db.commit()
-    return _back(form, "/settings/servers")
+    return _back(form, f"/servers/{server_id}/settings")
 
 
 @router.post("/servers/{server_id}/delete")
@@ -184,14 +216,10 @@ def server_history_download(server_id: int, request: Request, user: User = Depen
 def _all_summaries(db: Session, user: User | None = None) -> dict:
     data = {"servers": [{**monitoring.server_summary(db, s), "delete_confirm": infra.what_goes(db, s)}
                         for s in db.scalars(select(Server).order_by(Server.name))]}
-    # Для формы «Новый сервер»: к какому устройству топологии он подключён
-    if user and user.can("topology.edit"):
-        data["devices"] = db.scalars(select(Device).order_by(Device.name)).all()
     return data
 
 
-# Список серверов в Настройки → Серверы и сервисы и виджет на главной
-SECTION_EXTRA["servers"] = _all_summaries
+# Виджет на главной
 widget("servers", "servers.view")(_all_summaries)
 
 

@@ -97,7 +97,7 @@ def test_server_create_places_on_map(admin, db):
     switch = Device(name="Свитч LAB", type="switch")
     db.add(switch)
     db.commit()
-    assert "Подключён к" in admin.get("/settings/servers").text
+    assert "Подключён к" in admin.get("/servers").text
     admin.post("/servers", data={"name": "NAS", "host": "192.168.1.40", "collector": "ssh", "on_map": "on",
                                  "uplink_id": str(switch.id)})
     server = db.scalar(select(Server).where(Server.name == "NAS"))

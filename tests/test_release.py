@@ -118,3 +118,8 @@ def test_release_workflow():
     assert "tools/build_release.py" in text
     assert "linux/amd64,linux/arm64" in text
     assert "pytest -q" in text and "SHA256SUMS" in text
+    # Ручной запуск для уже отправленного тега; ввод попадает в shell только через env, не подстановкой в run
+    assert "workflow_dispatch" in text and "inputs.tag || github.ref_name" in text
+    run_blocks = re.findall(r"run: \|\n((?:\s{10,}.*\n)+)", text)
+    assert run_blocks and not any("inputs." in b or "RELEASE_TAG }}" in b for b in run_blocks)
+    assert text.count("ref: refs/tags/${{ env.RELEASE_TAG }}") == 3  # все задачи собирают код тега

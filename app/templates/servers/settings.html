@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block actions %}
+<a class="btn" href="/servers/{{ srv.id }}">{{ icon("server") }} Сводка</a>
+{% endblock %}
+{% block content %}
+<a href="/servers/{{ srv.id }}" class="muted">{{ icon("arrow-left") }} {{ srv.name }}</a>
+{% include "servers/_settings.html" %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{# Настройки → Записи консоли → проигрыватель. Контекст — app/routers/recordings.py #}
+{% extends "settings/_layout.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% block head %}<link rel="stylesheet" href="/static/vendor/xterm.min.css">{% endblock %}
+{% block settings %}
+<a href="/settings/recordings" class="muted">{{ icon("arrow-left") }} Все записи</a>
+<section class="card">
+  <h3>{{ icon("terminal") }} Запись #{{ rec.id }} — {{ rec.server_name }}</h3>
+  <p class="muted">{{ rec.username }} · {{ rec.target }} · {{ rec.started_at.strftime("%Y-%m-%d %H:%M") }} UTC ·
+    {{ seconds // 60 }}:{{ "%02d" | format(seconds % 60) }} · {{ (rec.bytes / 1024) | round(1) }} КБ · {{ rec.reason }}</p>
+  <div class="row">
+    <button class="btn btn-primary" id="rec-play" type="button">Пуск</button>
+    <button class="btn" id="rec-speed" type="button">1×</button>
+    <button class="btn" id="rec-end" type="button">В конец</button>
+    <a class="btn" href="/settings/recordings/{{ rec.id }}/cast">{{ icon("save") }} Скачать .cast</a>
+    <form method="post" action="/settings/recordings/{{ rec.id }}/pin">{{ csrf() }}
+      <button class="btn">{{ "Снять закрепление" if rec.pinned else "Сохранить (не удалять по сроку)" }}</button></form>
+    <form method="post" action="/settings/recordings/{{ rec.id }}/delete">{{ csrf() }}
+      <button class="btn">{{ icon("x") }} Удалить</button></form>
+  </div>
+  <div class="console-status" id="rec-status" role="status"></div>
+  <div class="console-term" id="rec-term" data-src="/settings/recordings/{{ rec.id }}/cast?play=1"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/xterm.min.js" defer></script>
+<script src="/static/js/recording.js" defer></script>
+{% endblock %}

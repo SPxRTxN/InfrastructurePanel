@@ -88,7 +88,7 @@ def test_key_path_encrypted_and_hidden(admin, db):
     assert _create(admin).status_code == 303
     server = db.scalar(select(Server))
     assert server.ssh_key_enc and "id_secret_key" not in server.ssh_key_enc
-    for url in ["/servers", f"/servers/{server.id}", "/api/servers", "/settings/servers", "/"]:
+    for url in ["/servers", f"/servers/{server.id}", f"/servers/{server.id}/settings", "/api/servers", "/"]:
         r = admin.get(url)
         assert r.status_code == 200
         assert "id_secret_key" not in r.text and "ssh_key_enc" not in r.text, url

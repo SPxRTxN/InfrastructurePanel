@@ -18,6 +18,8 @@ PERMISSIONS: dict[str, str] = {}
 for _key, _label in SECTIONS.items():
     PERMISSIONS[f"{_key}.view"] = f"{_label}: просмотр"
     PERMISSIONS[f"{_key}.edit"] = f"{_label}: изменение"
+# Интерактивный shell на сервере — сильнее любого .edit, поэтому отдельное право и только у администраторов
+PERMISSIONS["servers.console"] = "Серверы: SSH-консоль"
 PERMISSIONS["settings.manage"] = "Глобальные настройки"
 PERMISSIONS["users.manage"] = "Пользователи и группы"
 

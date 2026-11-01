@@ -10,10 +10,11 @@ from sqlalchemy.orm import Session
 from app import __version__
 from app.db import SessionLocal, get_db
 from app.models import Device, Node, NodeAction, NodeEvent, Server, User
+from app.routers import servers as servers_router
 from app.routers import vpn as vpn_router
 from urllib.parse import quote
 
-from app.services import agent_remote, agent_updates, agents, audit, device_actions, infra
+from app.services import agent_remote, agent_tunnel, agent_updates, agents, audit, device_actions, infra
 from app.utils import utcnow
 from app.web import json_download, render, require
 
@@ -75,12 +76,17 @@ def node_page(node_id: int, request: Request, user: User = Depends(require("serv
     events = db.scalars(select(NodeEvent).where(NodeEvent.node_id == node.id)
                         .order_by(NodeEvent.ts.desc()).limit(20)).all()
     servers = db.scalars(select(Server).order_by(Server.name)).all()
-    return render(request, "nodes/detail.html", {
+    ctx = {
         "title": node.name, "n": summary(db, node), "groups": _sensor_groups(node), "actions_log": actions,
         "events": events, "servers": servers, "chart_kinds": CHART_KINDS,
         "delete_confirm": infra.what_goes(db, node.server) if node.server
         else f"Удалить узел «{node.name}»? Токен перестанет действовать, история попадёт в архив.",
-    }, user, db)
+    }
+    # Настройки узла (общий фрагмент с /servers/{id}/settings) — тем, кто может править, и если у узла есть сервер
+    if node.server and user.can("servers.edit"):
+        ctx.update(servers_router.settings_context(db, user, node.server, f"/nodes/{node.id}#settings",
+                                                   f"/nodes/{node.id}/delete"))
+    return render(request, "nodes/detail.html", ctx, user, db)
 
 
 # ---------- API (только чтение) ----------
@@ -151,6 +157,26 @@ async def node_update(node_id: int, request: Request, user: User = Depends(requi
     _link_server(db, node, await request.form(), user)
     db.commit()
     return RedirectResponse(f"/nodes/{node.id}", 303)
+
+
+@router.post("/nodes/{node_id}/server")
+async def node_create_server(node_id: int, request: Request, user: User = Depends(require("servers.edit")),
+                             db: Session = Depends(get_db)):
+    """«Создать карточку сервера»: сервер со сбором agent, имя узла; адрес — из формы, иначе последний IP агента."""
+    node = _node(db, node_id)
+    if node.server:
+        raise HTTPException(400, "У узла уже есть сервер")
+    form = await request.form()
+    host = str(form.get("host", "")).strip()[:255] or (node.ips[0] if node.ips else "") or node.remote_ip or ""
+    if not host:
+        raise HTTPException(400, "Укажите адрес сервера: агент ещё не присылал свой IP")
+    server = Server(name=node.name, host=host, collector="agent", enabled=True)
+    node.server = server
+    db.add(server)
+    db.commit()
+    audit.log_event(db, "node_server", request=request, username=user.username,
+                    detail=f"узел «{node.name}»: создана карточка сервера")
+    return RedirectResponse(f"/nodes/{node.id}#settings", 303)
 
 
 @router.post("/nodes/{node_id}/token")
@@ -266,6 +292,7 @@ async def agent_ws(ws: WebSocket):
                                        "v": agents.PROTOCOL_VERSION, "panel_version": __version__}))
     old = agents.hub.register(node_id, ws)
     if old:
+        agent_tunnel.drop_node(node_id)  # туннели шли по вытесненному соединению
         await _close(old, 1000)  # второй агент с тем же именем вытесняет первого
     with SessionLocal() as db:
         node = db.get(Node, node_id)
@@ -279,6 +306,9 @@ async def agent_ws(ws: WebSocket):
                 continue
             data = _json(text)
             kind = data.get("type") if isinstance(data, dict) else None
+            if isinstance(kind, str) and kind.startswith("tunnel_"):  # поток байт: без обращения к БД на каждый кусок
+                agent_tunnel.on_message(node_id, data)
+                continue
             with SessionLocal() as db:
                 node = db.get(Node, node_id)
                 if not node:  # узел удалили в панели
@@ -302,6 +332,7 @@ async def agent_ws(ws: WebSocket):
         pass
     finally:
         if agents.hub.unregister(node_id, ws):
+            agent_tunnel.drop_node(node_id)
             with SessionLocal() as db:
                 agents.disconnect(db, node_id)
         await _close(ws)

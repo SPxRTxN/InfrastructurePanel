@@ -1,9 +1,8 @@
-{% extends "base.html" %}
+{% extends "settings/_layout.html" %}
 {% from "_macros.html" import icon, csrf with context %}
 {% set status_text = {"pending": "ждёт узла", "sent": "отправлено", "applied": "включено", "failed": "откатился",
                       "unsupported": "агент без VPN"} %}
-{% block content %}
-{% include "_infra_tabs.html" %}
+{% block settings %}
 
 <section class="card">
   <h3>{{ icon("globe") }} Подписки</h3>

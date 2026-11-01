@@ -1,11 +1,10 @@
-{% extends "base.html" %}
+{% extends "settings/_layout.html" %}
 {% from "_macros.html" import icon, csrf with context %}
-{% block content %}
-{% include "_infra_tabs.html" %}
+{% block settings %}
 <section class="card">
   <h3>{{ icon("history") }} Удалённые серверы и узлы</h3>
   <p class="muted small">При удалении сервер, его сервисы, узел с агентом и место на карте сети уходят сюда вместе с историей.
-    Запись хранится {{ days }} дн. (Настройки → Серверы и сервисы) и входит в бэкапы. Скачивание — JSON.</p>
+    Запись хранится {{ days }} дн. (Настройки → Интервалы и хранение) и входит в бэкапы. Скачивание — JSON.</p>
   <div class="table-wrap">
   <table class="table">
     <thead><tr><th>Удалено</th><th>Что</th><th>Подробности</th><th>Кто</th><th>Хранится до</th><th></th></tr></thead>

@@ -10,7 +10,7 @@ CSS = (ROOT / "app/static/css/app.css").read_text(encoding="utf-8")
 
 PAGES = ["/", "/servers", "/jira", "/confluence", "/calendar", "/topology", "/alerts",
          "/vpn", "/archive", "/nodes", "/settings/profile", "/settings/users",
-         "/settings/groups", "/settings/security", "/settings/servers", "/settings/appearance"]
+         "/settings/groups", "/settings/security", "/settings/intervals", "/settings/appearance"]
 
 
 def _css_rule(selector_start: str) -> str:

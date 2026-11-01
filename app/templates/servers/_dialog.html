@@ -1,0 +1,21 @@
+{# Кнопка «Удалить везде» и модальное окно (<dialog>): текст из infra.what_goes, выбор «удалить агента / оставить».
+   Поле remove_agent то же, что у прежней галочки: 1 — удалить агента, 0 — оставить. Открывает и закрывает app.js. #}
+{% from "_macros.html" import icon, csrf with context %}
+{% macro delete_dialog(dlg_id, action, text, label="Удалить везде", with_agent=False) %}
+<button type="button" class="btn btn-danger" data-dialog-open="{{ dlg_id }}">{{ icon("trash-2") }} {{ label }}</button>
+<dialog id="{{ dlg_id }}" class="dialog">
+  <form method="post" action="{{ action }}" class="form">
+    {{ csrf() }}
+    <h3>{{ label }}</h3>
+    <p>{{ text }}</p>
+    {% if with_agent %}
+    <label class="check"><input type="radio" name="remove_agent" value="1" checked> Удалить и агента с узла</label>
+    <label class="check"><input type="radio" name="remove_agent" value="0"> Оставить агента на узле</label>
+    {% endif %}
+    <div class="row">
+      <button class="btn btn-danger">{{ icon("trash-2") }} Удалить</button>
+      <button type="button" class="btn" data-dialog-close>Отмена</button>
+    </div>
+  </form>
+</dialog>
+{% endmacro %}

@@ -1,17 +1,39 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon %}
-{% block actions %}
-{% if user.can("servers.edit") %}<a class="btn" href="/settings/servers">{{ icon("settings") }} Управление</a>{% endif %}
-{% endblock %}
+{% from "_macros.html" import icon, csrf with context %}
 {% block content %}
 {% include "_infra_tabs.html" %}
 <div class="grid-cards">
   {% for s in servers %}
     {% include "servers/_card.html" %}
   {% else %}
-    <div class="card empty-state"><p class="muted">Серверов нет.{% if user.can("servers.edit") %} Добавьте в <a href="/settings/servers">настройках</a>.{% endif %}</p></div>
+    <div class="card empty-state"><p class="muted">Серверов нет.{% if user.can("servers.edit") %} Добавьте ниже или создайте <a href="/nodes">узел</a> с агентом.{% endif %}</p></div>
   {% endfor %}
 </div>
+{% if user.can("servers.edit") %}
+<section class="card">
+  <h3>Новый сервер</h3>
+  <form method="post" action="/servers" class="form form-grid">
+    {{ csrf() }}
+    <label>Имя<input name="name" required maxlength="128"></label>
+    <label>Тип<select name="kind"><option value="server">Сервер</option><option value="pc">Компьютер</option><option value="other">Другое</option></select></label>
+    <label>Адрес<input name="host" required maxlength="255"></label>
+    <label>Сбор<select name="collector">
+      <option value="local">local (psutil)</option><option value="ssh">ssh</option>
+      <option value="agent">agent (homelab-agent)</option></select></label>
+    <label>Порт SSH<input type="number" name="ssh_port" value="22" min="1" max="65535"></label>
+    <label>Пользователь SSH<input name="ssh_user" maxlength="64" autocomplete="off"></label>
+    <label>Путь к ключу<input name="ssh_key_path" placeholder="не задан" autocomplete="off"></label>
+    <label class="check"><input type="checkbox" name="enabled" checked> Включён</label>
+    {% if devices is not none %}
+    <label class="check"><input type="checkbox" name="on_map" checked> Добавить на топологию</label>
+    <label>Подключён к<select name="uplink_id"><option value="">— не связывать —</option>
+      {% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+    {% endif %}
+    <div><button class="btn btn-primary">{{ icon("plus") }} Добавить</button></div>
+  </form>
+  <p class="muted">Остальное (вход по SSH, сервисы, удаление) — в «Настройках узла» на странице сервера. Для ssh ключ хоста запоминается при первом подключении.</p>
+</section>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/chart.umd.min.js" defer></script>
