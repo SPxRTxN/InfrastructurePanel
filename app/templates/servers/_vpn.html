@@ -1,0 +1,47 @@
+{# Содержимое плитки «VPN» в настройках узла; грузится htmx с GET /servers/{id}/vpn (settings.manage). Секреты подписки не выводятся. #}
+{% from "_macros.html" import icon, csrf with context %}
+{% set status_text = {"pending": "ждёт узла", "sent": "отправлено", "applied": "включено", "failed": "откатился",
+                      "unsupported": "агент без VPN"} %}
+<div class="card-sub" id="vpn">
+  {% if not node %}
+    <p class="muted">У сервера нет узла: <a href="#agent">Настройки</a> — установите агента.</p>
+  {% elif not supported %}
+    <p class="muted">VPN не разрешён на узле · <a href="#agent">Настройки</a></p>
+  {% else %}
+    {% set a = assignment %}
+    <p class="muted small">Весь трафик узла пойдёт через выбранный сервер подписки; локальная сеть, адрес панели и
+      сам VPN-сервер остаются напрямую. Если связь не подтвердится за минуту, узел вернёт всё как было.
+      {% if singbox %}Версия sing-box на узле: <code>{{ singbox }}</code>.{% endif %}</p>
+    {% if a %}<p>
+      {% if a.mode != "off" %}<span class="status {{ 'ok' if a.status == 'applied' else ('bad' if a.status in ('failed', 'unsupported') else '') }}">{{ status_text.get(a.status, a.status) }}</span> {{ a.server_name }}{% if a.engine|default("") %} <span class="muted small">· {{ a.engine }}</span>{% endif %}
+      {% else %}<span class="status">выключен</span>{% endif %}
+      {% if a.detail %}<br><small class="muted">{{ a.detail }}</small>{% endif %}</p>{% endif %}
+    {% if subs %}
+    <form method="post" action="/vpn/assign" class="row">{{ csrf() }}
+      <input type="hidden" name="node_id" value="{{ node.id }}"><input type="hidden" name="back" value="/servers/{{ srv_id }}/settings#vpn">
+      <select name="server">{% for s in subs %}<optgroup label="{{ s.name }}">{% for x in servers[s.id] %}
+        <option value="{{ s.id }}:{{ x.key }}" {{ "selected" if a and a.server_key == x.key }}>{{ x.name }}</option>{% endfor %}</optgroup>{% endfor %}</select>
+      <select name="fingerprint" title="Отпечаток TLS-клиента (uTLS). Если reality не проходит — попробуйте chrome">
+        <option value="">Отпечаток: как в подписке</option>{% for f in fingerprints %}
+        <option value="{{ f }}" {{ "selected" if a and a.fingerprint == f }}>Отпечаток: {{ f }}</option>{% endfor %}</select>
+      <button class="btn btn-primary" data-confirm="Пустить весь трафик узла {{ node.name }} через VPN?">Включить</button>
+    </form>
+    {% else %}<p class="muted small">Подписок нет — добавьте в <a href="/vpn">Настройки → VPN</a>.</p>{% endif %}
+    {% if a and a.mode != "off" %}
+    <form method="post" action="/vpn/assign/{{ node.id }}/off">{{ csrf() }}
+      <input type="hidden" name="back" value="/servers/{{ srv_id }}/settings#vpn"><button class="btn">Выключить</button></form>
+    {% endif %}
+  {% endif %}
+  {% if vpn_log %}
+  <details class="sub-item"><summary>Журнал подключения <small class="muted">{{ vpn_log | length }}</small></summary>
+    <ul class="list-plain">{% for e in vpn_log %}
+      <li><span class="status {{ 'warn' if e.level == 'warning' else '' }}">{{ "!" if e.level == "warning" else "·" }}</span>
+        <small data-time="{{ e.ts.isoformat() }}Z">{{ e.ts }}</small> {{ e.text[5:] }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</div>
+{% if not node %}{% set vsum = "VPN: нет узла" %}
+{% elif not supported %}{% set vsum = "VPN: не разрешён" %}
+{% elif assignment and assignment.mode != "off" %}{% set vsum = "VPN: включён" ~ (" (" ~ assignment.engine ~ ")" if assignment.engine|default("") else "") %}
+{% else %}{% set vsum = "VPN: выключен" %}{% endif %}
+<span id="sum-vpn" hx-swap-oob="true">{{ vsum }}</span>

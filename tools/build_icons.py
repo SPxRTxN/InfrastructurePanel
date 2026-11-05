@@ -22,9 +22,9 @@ ICONS = """
 house server square-kanban book-open calendar network settings log-out bell user users
 panel-left-close panel-left-open search plus x check chevron-down chevron-right trash-2 pencil
 link file-text file-plus hard-drive memory-stick cpu activity wifi wifi-off circle-check circle-x
-clock eye save history router monitor cloud globe folder refresh-cw triangle-alert filter
-arrow-left list shield palette layout-dashboard external-link grip-vertical sun moon radio
-lightbulb laptop tag flag calendar-clock repeat
+clock eye save history router monitor cloud globe maximize-2 folder refresh-cw triangle-alert filter
+arrow-left list shield palette layout-dashboard external-link grip-vertical sun moon radio download
+lightbulb laptop tag flag calendar-clock repeat boxes
 """.split()
 
 

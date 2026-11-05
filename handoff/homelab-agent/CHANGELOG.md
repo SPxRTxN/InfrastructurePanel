@@ -3,6 +3,75 @@
 Формат: «## X.Y.Z — дата», новые версии сверху. Версия — `homelab_agent/__init__.py`; по ней панель предлагает
 узлам обновление. Что умеет агент — [docs/Возможности.md](docs/Возможности.md).
 
+## 0.5.4 — 2026-11-04
+
+- **Исправлено: vpn-setup и python-setup не убирали временные файлы** после успешной установки (local tmp пуст к моменту
+  trap EXIT) — на Pi /tmp (tmpfs 450 МБ) забивался архивами sing-box/Xray по 50–100 МБ, и ensurepip падал «No space left».
+  install.sh при нехватке места в /tmp кладёт временные файлы в /var/tmp.
+- **Свой Python агента** (`start-agent --own-python`, в панели — галочка «Свой Python»): готовая сборка CPython
+  (python-build-standalone) в `/opt/homelab-agent/python` с закреплённой версией и SHA-256 (`packaging/python-setup`).
+  Системный python3 и apt не трогаются; venv агента и обновления из панели — от этого Python; удаление агента удаляет и его.
+- **Журнал VPN в панели:** `vpn_result` несёт `interfaces` — после включения VPN панель сразу видит туннель `hl-vpn`.
+- **Консоль через агента — из панели.** Раздел `[terminal]` стал managed: панель включает/выключает его и задаёт
+  `max_sessions`, `rate_kbps`, `idle_timeout`. `target` (куда пересылать) — только в agent.toml.
+- **Исправлено: повторная установка падала на шаге «token»** («Permission denied» у root): etc/ — каталог со
+  sticky-битом, а при `fs.protected_regular=2` (Ubuntu) root не может перезаписать чужой token-main. Теперь — новый файл
+  и переименование.
+- **Windows одной командой из панели:** `start-agent.ps1 -NodeName … -PanelWs … -TokenPath … -Unattended` — без вопросов
+  и пауз (код 0 — подключено, 1 — ошибка, 2 — служба запущена, панель не подключилась).
+- **Исправлено:** при сохранении раздела из панели ключи «только на узле» (`update.restart_argv`, теперь и
+  `terminal.target`) берутся из agent.toml — раньше свой `restart_argv` узла терялся.
+
+## 0.5.3 — 2026-11-04
+
+- **Исправлено: Xray отвергал любой конфиг** («failed to load config files»). Проверяемый файл назывался
+  `xray.json.new`, а Xray выбирает формат по расширению — теперь `xray.new.json`. В причине отказа — конец вывода
+  (раньше обрезался на баннере с версией).
+
+## 0.5.2 — 2026-11-04
+
+- **Исправлено: Xray/sing-box не ставились из агента** («не удалось записать /usr/local/bin/xray»). `sudo vpn-setup`
+  наследовал песочницу службы агента (`ProtectSystem=strict` — `/usr` только для чтения даже для root). Теперь агент
+  запускает помощник через `sudo -n systemd-run --wait --pipe --collect --quiet …` — отдельной службой вне песочницы;
+  строки sudoers обновлены (нужна переустановка агента). `install.sh --vpn` ставит Xray сразу, вместе с sing-box.
+
+## 0.5.1 — 2026-11-04
+
+- **Сетевые интерфейсы в `hello`.** `info.interfaces` — до 16 интерфейсов (имя, MAC, IPv4/IPv6, up, скорость Мбит/с)
+  для страницы сервера в панели; основной первым, без `lo`, `veth*`, `br-*`, `docker*`. `mac` в `hello` остаётся.
+
+## 0.5.0 — 2026-11-04
+
+- **VPN на двух движках.** Агент пробует по порядку sing-box (`config`), затем Xray (`xray`): для серверов, которые
+  sing-box не тянет (vless+reality с `reality verification failed`, xhttp). У Xray TUN по-прежнему держит sing-box,
+  а трафик уходит в локальный SOCKS Xray (`homelab-vpn-xray.service`, пользователь `hl-xray`, без capabilities).
+  Не поднялся ни один — откат к прежнему движку и файлам (`.prev`) или полная остановка.
+- Агент проверяет конфиг Xray по белому списку и `xray run -test`, сам резолвит адрес VPN-сервера до подъёма
+  туннеля (IP в outbound Xray и `route_exclude_address`), добавляет `exclude_uid` пользователя `hl-xray` (без петли).
+- `vpn-setup install-xray` (версия и SHA-256 закреплены, три архитектуры); `install.sh --vpn` создаёт `hl-xray`,
+  ставит юнит и строки sudoers. `vpn_result.engine`, `hello.info.vpn.xray`. Контракт — Obsidian дашборда.
+- Совместимость: сообщения без поля `xray` (старая панель) работают как раньше, только sing-box.
+
+## 0.4.1 — 2026-11-04
+
+- **VPN: sing-box не читал конфиг** («permission denied»): root службы `homelab-vpn` урезан до сетевых прав и
+  не читает файл агента (каталог 0700). Теперь конфиг передаёт systemd — `LoadCredential=` и `run -c %d/config.json`.
+- **Сторож VPN** считал упавший sing-box успехом (панель и интернет доступны мимо туннеля). Теперь нужны активная
+  служба и TUN-интерфейс, проверка — дважды подряд; в ответе панели — причина отката.
+
+## 0.4.0 — 2026-11-04
+
+- **Автоматическая установка**: `start-agent` принимает флаги `--token-file`, `--node`, `--panel-url`, `--vpn`,
+  `--report-url`, `--help-url` (без флагов работает как раньше). Шаги `python`, `code`, `token`, `config`, `vpn`,
+  `service`, `connect`; на каждом ошибка печатается блоком «ОШИБКА на шаге… / Что сделать / Установка вручную»,
+  отчёты о шагах уходят на `--report-url`; коды выхода 0 / 1 (ошибка шага) / 2 (служба запущена, панель не подключилась).
+  Без терминала токен не спрашивается.
+- **VPN из коробки**: `install.sh --vpn` ставит помощника `bin/vpn-setup`, строки sudoers и `[vpn] enabled = true`;
+  `vpn-setup install` скачивает sing-box 1.14.4 (три архитектуры, закреплённые SHA-256). Нет sing-box при сообщении
+  `vpn` — агент вызывает `sudo -n vpn-setup install` сам (`[vpn] setup = "…"`).
+- `hello.info.vpn = {"singbox": версия|"", "setup": bool}`; конфиг sing-box 1.14 (`dns.servers[].type`,
+  `route.default_domain_resolver`) принимается.
+
 ## 0.3.0 — 2026-11-02
 
 - **Терминал** (`[terminal]`, по умолчанию выключен): TCP-туннель панель → агент → локальный sshd узла для SSH-консоли

@@ -1,0 +1,18 @@
+{# Форма сервиса: sv — редактируемый сервис или none; action — куда отправлять #}
+<form method="post" action="{{ action }}" class="form form-grid">
+  {{ csrf() }}
+  <label>Узел<select name="server_id" required>
+    {% for s in servers %}<option value="{{ s.id }}" {{ "selected" if sv and sv.server_id == s.id }}>{{ s.name }}</option>{% endfor %}
+  </select></label>
+  <label>Имя<input name="name" required maxlength="128" value="{{ sv.name if sv }}"></label>
+  <label>Вид<select name="kind">
+    {% for k, kv in kinds.items() %}<option value="{{ k }}" {{ "selected" if sv and sv.kind == k }}>{{ kv[0] }}</option>{% endfor %}
+  </select></label>
+  <label>Проверка<select name="check_type">
+    {% for t in ("tcp", "http") %}<option value="{{ t }}" {{ "selected" if sv and sv.check_type == t }}>{{ t }}</option>{% endfor %}
+  </select></label>
+  <label>Адрес проверки<input name="target" required maxlength="500" placeholder="host:port или https://…" value="{{ sv.target if sv }}"></label>
+  <label>Веб-адрес<input name="web_url" maxlength="500" placeholder="https://…" value="{{ sv.web_url if sv }}"></label>
+  <label>Описание<textarea name="description" rows="3" maxlength="2000">{{ sv.description if sv }}</textarea></label>
+  <div><button class="btn btn-primary">{{ icon("save" if sv else "plus") }} {{ "Сохранить" if sv else "Добавить" }}</button></div>
+</form>

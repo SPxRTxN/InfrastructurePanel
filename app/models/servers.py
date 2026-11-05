@@ -119,5 +119,8 @@ class Service(Base):
     ok: Mapped[bool | None] = mapped_column(Boolean, default=None)
     last_checked: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     last_error: Mapped[str] = mapped_column(String(500), default="")
+    kind: Mapped[str] = mapped_column(String(32), default="generic")  # вид сервиса: см. SERVICE_KINDS
+    web_url: Mapped[str] = mapped_column(String(500), default="")  # адрес веб-интерфейса (http/https)
+    description: Mapped[str] = mapped_column(Text, default="")
 
     server: Mapped[Server] = relationship(back_populates="services")

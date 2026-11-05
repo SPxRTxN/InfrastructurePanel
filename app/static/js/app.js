@@ -40,6 +40,28 @@ document.getElementById("sidebar-toggle")?.addEventListener("click", () => {
   api("/settings/sidebar", { method: "POST" }).catch(() => {});
 });
 
+// ---------- Быстрый переход по меню: «/» — фокус, ввод фильтрует пункты, Enter — первый найденный ----------
+const navSearch = document.getElementById("nav-search");
+if (navSearch) {
+  const items = [...document.querySelectorAll(".sidebar .nav-item[href]")];
+  const visible = () => items.filter(a => !a.hidden);
+  navSearch.addEventListener("input", () => {
+    const q = navSearch.value.trim().toLowerCase();
+    items.forEach(a => { a.hidden = !!q && !a.textContent.toLowerCase().includes(q); });
+    document.querySelectorAll(".nav-group").forEach(g => { g.hidden = !g.querySelector(".nav-item:not([hidden])"); });
+  });
+  navSearch.addEventListener("keydown", e => {
+    if (e.key === "Enter" && visible()[0]) location.href = visible()[0].href;
+    if (e.key === "Escape") { navSearch.value = ""; navSearch.dispatchEvent(new Event("input")); navSearch.blur(); }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest("input, textarea, select, [contenteditable], .xterm")) return;
+    e.preventDefault();
+    navSearch.focus();
+  });
+}
+
 // ---------- Подтверждение опасных действий ----------
 document.addEventListener("click", e => {
   const btn = e.target.closest("[data-confirm]");

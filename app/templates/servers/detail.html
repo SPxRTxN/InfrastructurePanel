@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon %}
-{# Только информация. Вся настройка (правка, доступ, сервисы, удаление) — в настройках узла #}
+{# Вся информация о сервере и его узле. Настройка (правка, доступ, сервисы, действия, удаление) — в настройках узла #}
 {% block actions %}
 {% if user.can("servers.console") %}<a class="btn" href="/servers/{{ s.id }}/console">{{ icon("terminal") }} Консоль</a>{% endif %}
 <a class="btn" href="/servers/{{ s.id }}/history.json">{{ icon("save") }} История</a>
@@ -23,16 +23,66 @@
     <b data-time="{{ s.last_checked or '' }}">{{ s.last_checked or "не проверялся" }}</b><small>Последняя проверка</small></div></div>
 </div>
 {% if s.last_error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ s.last_error }}</div>{% endif %}
+{% if user.can("servers.edit") and not (node and n is defined and n.online) %}
+<div class="alert">{{ icon("terminal") }}
+  <span>{% if not node %}Агент не установлен — без него нет датчиков, сети, VPN и консоли через агента.{% else %}Агент узла «{{ node.name }}» не на связи.{% endif %}</span>
+  <a class="btn btn-sm btn-primary" href="{{ '/nodes/%d#agent' % node.id if node else '/servers/%d/settings#agent' % s.id }}">{{ icon("download") }} {{ "Установить агента" if not node else "Переустановить" }}</a>
+</div>
+{% endif %}
 
+<div class="tile-grid">
 {% if node %}
-<section class="card">
-  <div class="card-head"><h3>История датчиков узла <a href="/nodes/{{ node.id }}" class="muted small">{{ node.name }}</a></h3></div>
+<section class="card" id="net">
+  <div class="card-head"><h3>{{ icon("network") }} Сеть</h3></div>
+  <p class="card-summary">Агент: {{ "онлайн" if n.online else "офлайн" }} · VPN: {{ "включён" if vpn.on else "выключен" }}</p>
+  <dl class="meta-dl">
+    <dt>Агент</dt><dd>{% if n.online %}<span class="status ok">Онлайн</span>{% elif n.last_seen %}<span class="status bad">Офлайн</span>{% else %}не подключался{% endif %}
+      {% if n.version %}<small class="muted">· версия {{ n.version }}</small>{% endif %}</dd>
+    {% if n.remote_ip %}<dt>Подключён с</dt><dd>{{ n.remote_ip }}</dd>{% endif %}
+    <dt>Туннель консоли</dt><dd>{{ "есть" if tunnel else "нет" }}</dd>
+    <dt>VPN</dt><dd>
+      {% if not vpn.supported %}не разрешён на узле
+      {% elif vpn.on %}<span class="status ok">включён</span>{% if vpn.engine %} <small class="muted">· {{ vpn.engine }}</small>{% endif %}{% if vpn.server %} {{ vpn.server }}{% endif %}
+        {% if vpn.status != "applied" %}<small class="muted">({{ vpn.status }})</small>{% endif %}
+      {% else %}<span class="status">выключен</span>{% endif %}</dd>
+  </dl>
+  {% if interfaces %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>Интерфейс</th><th>Состояние</th><th>MAC</th><th>Адреса</th><th>Скорость</th></tr></thead>
+    <tbody>{% for i in interfaces %}
+      <tr><td><b>{{ i.name }}</b>{% if i.name == "hl-vpn" %} <span class="pill">VPN-туннель</span>{% endif %}</td>
+        <td>{% if i.up %}<span class="status ok">up</span>{% else %}<span class="status">down</span>{% endif %}</td>
+        <td><code>{{ i.mac or "—" }}</code></td>
+        <td>{% for a in i.ipv4 + i.ipv6 %}{{ a }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td>
+        <td>{{ (i.speed ~ " Мбит/с") if i.speed else "—" }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted small">Агент не прислал список интерфейсов (нужна версия агента с поддержкой сети).</p>{% endif %}
+</section>
+
+<section class="card" id="node">
+  <div class="card-head"><h3>{{ icon("cpu") }} Узел <a href="/nodes/{{ node.id }}" class="muted small">{{ node.name }}</a></h3></div>
+  <p class="card-summary">{{ n.ips[0] if n.ips else (n.remote_ip or "—") }}{% if n.info.os %} · {{ n.info.os }}{% endif %}</p>
+  <dl class="meta-dl">
+    <dt>IP</dt><dd>{{ n.ips | join(", ") or "—" }}</dd>
+    {% for k, label in [("hostname", "Имя хоста"), ("os", "ОС"), ("kernel", "Ядро"), ("cpu", "Процессор"), ("threads", "Потоков")] %}
+    {% if n.info[k] %}<dt>{{ label }}</dt><dd>{{ n.info[k] }}</dd>{% endif %}{% endfor %}
+    {% if n.uptime %}<dt>Работает</dt><dd>{{ (n.uptime // 86400) | int }} д {{ ((n.uptime % 86400) // 3600) | int }} ч</dd>{% endif %}
+    {% if n.ram %}<dt>RAM (по данным агента)</dt><dd>{{ n.ram.used | bytes }} из {{ n.ram.total | bytes }}</dd>{% endif %}
+    {% if n.version %}<dt>Версия агента</dt><dd>{{ n.version }}</dd>{% endif %}
+    {% if n.cpu is not none %}<dt>CPU</dt><dd>{{ "%.0f"|format(n.cpu) }}%{% if n.temp is not none %} · {{ "%.1f"|format(n.temp) }} °C{% endif %}</dd>{% endif %}
+  </dl>
+</section>
+
+<section class="card span-2" id="charts">
+  <div class="card-head"><h3>{{ icon("activity") }} История датчиков узла</h3></div>
   <div id="node-charts" class="node-charts" data-history-url="/api/nodes/{{ node.id }}/history"></div>
 </section>
 {% endif %}
 
-<section class="card">
-  <h3>Диски</h3>
+<section class="card" id="disks">
+  <div class="card-head"><h3>{{ icon("save") }} Диски</h3></div>
+  <p class="card-summary">{{ s.disks | length }} шт.</p>
   <div class="table-wrap">
   <table class="table">
     <thead><tr><th>Раздел</th><th>Размер</th><th>Занято</th><th>Свободно</th><th class="col-wide"></th></tr></thead>
@@ -48,8 +98,9 @@
   </div>
 </section>
 
-<section class="card">
-  <h3>Сервисы</h3>
+<section class="card" id="svc">
+  <div class="card-head"><h3>{{ icon("activity") }} Сервисы</h3></div>
+  <p class="card-summary">{{ s.services | length }} шт.</p>
   <div class="table-wrap">
   <table class="table">
     <thead><tr><th>Имя</th><th>Проверка</th><th>Адрес</th><th>Статус</th></tr></thead>
@@ -65,9 +116,51 @@
   </table>
   </div>
 </section>
+{% if node %}
+<section class="card" id="sensors">
+  <div class="card-head"><h3>{{ icon("activity") }} Датчики ({{ n.sensor_count }})</h3></div>
+  <p class="card-summary">Групп: {{ groups | length }}</p>
+  {% for kind, sensors in groups %}
+  <details class="sub-item"><summary>{{ kind }} <small class="muted">{{ sensors | length }}</small></summary>
+    <div class="table-wrap"><table class="table"><tbody>
+      {% for x in sensors %}<tr><td>{{ x.label }}</td><td><code>{{ x.id }}</code></td>
+        <td>{% if x.value is none %}—{% elif x.unit == "B" %}{{ x.value | int | bytes }}{% else %}{{ "%.2f"|format(x.value) | replace(".00", "") }} {{ x.unit }}{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </details>
+  {% else %}<p class="muted">Агент ещё не подключался.</p>{% endfor %}
+</section>
+
+{% if events %}
+<section class="card" id="events">
+  <div class="card-head"><h3>{{ icon("activity") }} События</h3></div>
+  <p class="card-summary">Записей: {{ events | length }}</p>
+  <ul class="list-plain">{% for e in events %}
+    <li><span class="status {{ 'bad' if e.level == 'error' else ('' if e.level == 'info' else 'warn') }}">{{ e.level }}</span>
+      <small data-time="{{ e.ts.isoformat() }}Z">{{ e.ts }}</small> {{ e.text }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if actions_log %}
+<section class="card" id="actions-log">
+  <div class="card-head"><h3>{{ icon("refresh-cw") }} Последние действия</h3></div>
+  <p class="card-summary">Записей: {{ actions_log | length }}</p>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>Время</th><th>Действие</th><th>Результат</th></tr></thead>
+    <tbody>{% for a in actions_log %}
+      <tr><td data-time="{{ a.requested_at.isoformat() }}Z">{{ a.requested_at }}</td><td>{{ a.name }}</td>
+        <td>{% if a.status == "ok" %}<span class="status ok">готово</span>{% elif a.status == "sent" %}<span class="status">выполняется</span>{% else %}<span class="status bad">{{ a.error or a.status }}</span>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% if user.can("servers.edit") %}<small class="field-note">Запускать действия — в <a href="/nodes/{{ node.id }}#actions">настройках узла</a>.</small>{% endif %}
+</section>
+{% endif %}
+{% endif %}
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/js/chartzoom.js" defer></script>
 <script src="/static/js/charts.js" defer></script>
 {% if node %}<script src="/static/js/nodes.js" defer></script>{% endif %}
 {% endblock %}

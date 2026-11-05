@@ -99,6 +99,7 @@ def console_page(server_id: int, request: Request, user: User = Depends(require(
     srv = {"id": server.id, "name": server.name, "host": server.host, "port": server.ssh_port,
            "ssh_user": server.ssh_user, "has_key": server.has_key,
            "max_upload_mb": get_setting(db, "console.max_upload_mb"),
+           "address": f"{server.host}:{server.ssh_port}",
            # «Через агента» предлагаем, только если узел на связи и объявил tunnel
            "agent": node.name if node and agent_tunnel.available(node) else "",
            "settings_url": _settings_url(db, server.id), "max_tabs": console.MAX_PER_USER}
@@ -289,9 +290,9 @@ def _user_for(db: Session, ws: WebSocket, ticket: console.Ticket, touch: bool = 
     return row.user
 
 
-async def _send(ws: WebSocket, kind: str, text: str = "") -> None:
+async def _send(ws: WebSocket, kind: str, text: str = "", **extra) -> None:
     try:
-        await ws.send_text(json.dumps({"t": kind, "m": text}, ensure_ascii=False))
+        await ws.send_text(json.dumps({"t": kind, "m": text, **extra}, ensure_ascii=False))
     except (WebSocketDisconnect, RuntimeError):
         pass
 
@@ -357,7 +358,8 @@ async def console_ws(ws: WebSocket, server_id: int):
             with SessionLocal() as db:
                 audit.log_event(db, "console_open", ok=False, username=login, ip=ip,
                                 detail=f"{where}: {console.error_text(exc)}")
-            await _send(ws, "e", f"{target.address}: {console.error_text(exc)}")
+            await _send(ws, "e", f"{target.address}: {console.error_text(exc)}",
+                        **({"code": "auth"} if console.is_auth_error(exc) else {}))
             return
         target.password = ""
         if new_key:

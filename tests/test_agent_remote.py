@@ -50,7 +50,7 @@ def test_config_get_and_set(admin, db):
                                      "sections": SECTIONS, "local_only": ["panel", "collectors.command"]}))
             t.join(10)
             page = res["r"].text
-            assert res["r"].status_code == 200 and 'name="sec_interval"' in page and "collectors.command" in page
+            assert res["r"].status_code == 200 and 'name="f.interval"' in page and 'Добавить параметр' in page and "collectors.command" in page
 
             t, res = _post_async(admin, f"/nodes/{nid}/config/set",
                                  {"sec_interval": '{"seconds": 30}', "sec_wol": '{"enabled": true}'})

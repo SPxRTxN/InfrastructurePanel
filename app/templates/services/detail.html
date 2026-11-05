@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("services.edit") %}
+
+{% block actions %}
+{% if sv.web_url %}<a class="btn btn-primary" href="{{ sv.web_url }}" target="_blank" rel="noopener noreferrer">{{ icon("external-link") }} Открыть</a>{% endif %}
+{% endblock %}
+
+{% block content %}
+<p><a href="/services">{{ icon("arrow-left") }} Все сервисы</a></p>
+<section class="card">
+  <div class="card-head">
+    <h3>{{ icon(kinds.get(sv.kind, kinds["generic"])[1]) }} {{ sv.name }}</h3>
+    {% if sv.ok %}<span class="status ok">доступен</span>{% elif sv.ok is false %}<span class="status bad">недоступен</span>{% else %}<span class="status">не проверялся</span>{% endif %}
+  </div>
+  <div class="table-wrap">
+  <table class="table">
+    <tr><th>Узел</th><td>{% if user.can("servers.view") %}<a href="/servers/{{ sv.server_id }}">{{ sv.server.name }}</a>{% else %}{{ sv.server.name }}{% endif %}</td></tr>
+    <tr><th>Вид</th><td>{{ kinds.get(sv.kind, kinds["generic"])[0] }}</td></tr>
+    <tr><th>Проверка</th><td>{{ sv.check_type }}, <code>{{ sv.target }}</code></td></tr>
+    <tr><th>Последняя проверка</th><td>{{ sv.last_checked.strftime("%d.%m.%Y %H:%M") if sv.last_checked else "—" }}</td></tr>
+    {% if sv.last_error %}<tr><th>Ошибка</th><td>{{ sv.last_error }}</td></tr>{% endif %}
+    {% if sv.web_url %}<tr><th>Веб-адрес</th><td><code>{{ sv.web_url }}</code></td></tr>{% endif %}
+  </table>
+  </div>
+  {% if sv.description %}<p>{{ sv.description }}</p>{% endif %}
+</section>
+
+{% if can_edit %}
+<section class="card">
+  <div class="card-head"><h3>{{ icon("pencil") }} Изменить</h3></div>
+  {% with action = "/services/" ~ sv.id %}{% include "services/_form.html" %}{% endwith %}
+  <form method="post" action="/services/{{ sv.id }}/remove">{{ csrf() }}
+    <button class="btn btn-danger" data-confirm="Удалить сервис «{{ sv.name }}»?">{{ icon("trash-2") }} Удалить</button></form>
+</section>
+{% endif %}
+{% endblock %}

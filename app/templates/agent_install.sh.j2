@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Установка homelab-agent с панели (одноразовая ссылка, действует 30 минут).
+# Все значения подставлены панелью через shlex.quote; скрипт ничего не берёт из окружения.
+set -u
+
+NODE={{ node | q }}
+PANEL_WS={{ panel_ws | q }}
+SHA256={{ sha256 | q }}
+VERSION={{ version | q }}
+BUNDLE_URL={{ bundle_url | q }}
+TOKEN_URL={{ token_url | q }}
+REPORT_URL={{ report_url | q }}
+HELP_URL={{ help_url | q }}
+RUN_CMD={{ command | q }}
+VPN={{ vpn }}
+OWN_PYTHON={{ own_python }}
+TOKEN_FILE=/opt/homelab-agent/etc/token-main
+
+# Отчёт панели о шаге; ошибки отчёта установку не ломают
+report() {
+  local msg
+  msg=$(printf '%s' "${3:-}" | tr -d '\000-\037"\\' | cut -c1-400)
+  curl -fsS -m 5 -H 'Content-Type: application/json' \
+    -d "{\"step\":\"$1\",\"status\":\"$2\",\"message\":\"$msg\"}" "$REPORT_URL" >/dev/null 2>&1 || true
+}
+
+fail() {
+  report download failed "$1"
+  echo "ОШИБКА на шаге «download»: $1" >&2
+  echo "Что сделать: $2" >&2
+  echo "Установка вручную: $HELP_URL (Руководство, «Узлы и агенты»)" >&2
+  exit 1
+}
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Нужен root. Запустите: $RUN_CMD" >&2
+  exit 1
+fi
+
+report download running "проверка инструментов"
+for tool in curl tar sha256sum mktemp; do
+  command -v "$tool" >/dev/null 2>&1 || fail "не найден $tool" "установите пакет с $tool и повторите"
+done
+
+TMP=$(mktemp -d) || fail "не создан временный каталог" "проверьте место на диске и права на /tmp"
+trap 'rm -rf "$TMP"' EXIT
+umask 077
+
+report download running "скачивание агента $VERSION"
+curl -fsSL -m 180 -o "$TMP/agent.tar.gz" "$BUNDLE_URL" \
+  || fail "архив агента не скачался (панель недоступна или ссылка устарела)" "проверьте, что эта машина открывает адрес панели; ссылка действует 30 минут — выпустите новую"
+echo "$SHA256  $TMP/agent.tar.gz" | sha256sum -c --status \
+  || fail "контрольная сумма архива не совпала" "повторите установку; если повторяется — обновите панель и выпустите новую ссылку"
+mkdir "$TMP/agent" && tar -xzf "$TMP/agent.tar.gz" -C "$TMP/agent" \
+  || fail "архив не распаковался" "повторите установку"
+[ -f "$TMP/agent/start-agent" ] || fail "в архиве нет start-agent" "обновите панель до версии со свежим агентом"
+chmod 755 "$TMP/agent/start-agent"
+report download ok "агент $VERSION скачан и проверен"
+
+ARGS=(--node "$NODE" --panel-url "$PANEL_WS" --report-url "$REPORT_URL" --help-url "$HELP_URL")
+if [ ! -s "$TOKEN_FILE" ]; then
+  # Токен выдаётся один раз на ссылку; прежний токен узла при этом заменяется
+  curl -fsS -m 15 -X POST -o "$TMP/token.json" "$TOKEN_URL" \
+    || fail "панель не выдала токен (ссылка уже использована или устарела)" "выпустите новую команду установки в панели"
+  tr -d '\n' < "$TMP/token.json" | sed -n 's/.*"token"[ ]*:[ ]*"\([^"]*\)".*/\1/p' > "$TMP/token"
+  [ -s "$TMP/token" ] || fail "ответ панели без токена" "выпустите новую команду установки в панели"
+  ARGS+=(--token-file "$TMP/token")
+fi
+if [ "$VPN" = "1" ]; then
+  ARGS+=(--vpn)
+fi
+if [ "$OWN_PYTHON" = "1" ]; then
+  ARGS+=(--own-python)  # свой Python в /opt/homelab-agent/python, системный не трогается
+fi
+
+# stdin — скрипт (curl | bash): start-agent ничего не должен из него читать
+cd "$TMP/agent" || exit 1
+./start-agent "${ARGS[@]}" < /dev/null
+exit $?

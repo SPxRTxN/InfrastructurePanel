@@ -12,6 +12,7 @@ SECTIONS = {
     "confluence": "Confluence",
     "calendar": "Календарь",
     "topology": "Топология",
+    "services": "Сервисы",
 }
 
 PERMISSIONS: dict[str, str] = {}

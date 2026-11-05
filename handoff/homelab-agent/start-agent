@@ -2,18 +2,29 @@
 # Установка и запуск homelab-agent на Linux одной командой:  ./start-agent
 #
 # 1. Впишите токен узла ниже (панель → Инфраструктура → Узлы → добавить узел) — или оставьте пустым,
-#    тогда скрипт спросит его (ввод не отображается).
+#    тогда скрипт спросит его (ввод не отображается; без терминала не спрашивает — тогда нужен --token-file).
 # 2. Запустите ./start-agent — он сам поставит Python, создаст службу systemd с автозапуском после
 #    перезагрузки, запишет токен в /opt/homelab-agent/etc/token-main (0600) и сотрёт его из этого файла.
 # Повторный запуск безопасен: обновит код агента, при новом токене — заменит токен.
 # Удаление — ./uninstall-agent (подробно в УДАЛЕНИЕ.md).
+#
+# Флаги (важнее переменных ниже; их подставляет команда установки из панели):
+#   --token-file PATH   файл с токеном узла (его удаляет тот, кто создал)
+#   --node NAME         имя узла (как в панели)
+#   --panel-url WS_URL  адрес панели, ws:// или wss://
+#   --vpn               разрешить VPN на узле (install.sh --vpn: помощник vpn-setup, sing-box)
+#   --own-python        свой Python агента в /opt/homelab-agent/python (системный python3 не нужен и не меняется)
+#   --report-url URL    куда слать отчёты о шагах (POST JSON), необязательно
+#   --help-url URL      ссылка на «Установка вручную» в сообщениях об ошибке
+# Шаги: python, code, token, config, vpn (с --vpn), service, connect.
+# Коды выхода: 0 — готово и подключено; 1 — ошибка шага; 2 — служба запущена, но панель не подключилась.
 
 TOKEN=""
 NODE=""                                        # пусто — имя хоста; должно совпадать с именем узла в панели
 PANEL_URL="ws://192.168.1.39:8000/agent/ws"   # адрес панели; за HTTPS-прокси — wss://…
 OLED="auto"                                    # auto (есть /dev/i2c-*) | yes | no
 
-set -euo pipefail
+set -Eeuo pipefail
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 HERE="$(dirname "$SELF")"
 PREFIX=/opt/homelab-agent            # вся установка в этой папке (bin/ etc/ app/ state/ systemd/)
@@ -22,39 +33,132 @@ APP="$PREFIX/app"
 OLD_ETC=/etc/homelab-agent           # раскладка до единой папки: install.sh --upgrade её переносит
 APP_USER=homelab-agent
 
-say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
-die() { echo "ОШИБКА: $*" >&2; exit 1; }
+TOKEN_FILE=""
+VPN=0
+OWN_PY=0
+REPORT_URL=""
+HELP_URL=""
+EXPLICIT=0                           # переданы --node/--panel-url: правим конфиг и у уже установленного агента
+STEP="start"
+LOG=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --token-file) [ $# -ge 2 ] || { echo "ОШИБКА: у --token-file нет значения" >&2; exit 1; }; TOKEN_FILE="$2"; shift 2 ;;
+        --node) [ $# -ge 2 ] || { echo "ОШИБКА: у --node нет значения" >&2; exit 1; }; NODE="$2"; EXPLICIT=1; shift 2 ;;
+        --panel-url) [ $# -ge 2 ] || { echo "ОШИБКА: у --panel-url нет значения" >&2; exit 1; }; PANEL_URL="$2"; EXPLICIT=1; shift 2 ;;
+        --report-url) [ $# -ge 2 ] || { echo "ОШИБКА: у --report-url нет значения" >&2; exit 1; }; REPORT_URL="$2"; shift 2 ;;
+        --help-url) [ $# -ge 2 ] || { echo "ОШИБКА: у --help-url нет значения" >&2; exit 1; }; HELP_URL="$2"; shift 2 ;;
+        --vpn) VPN=1; shift ;;
+        --own-python) OWN_PY=1; shift ;;
+        -h|--help) sed -n '2,23p' "$SELF"; exit 0 ;;
+        *) echo "ОШИБКА: неизвестный аргумент $1 (список флагов: start-agent --help)" >&2; exit 1 ;;
+    esac
+done
+
+# Отчёты — только на http(s)-адрес без пробелов и кавычек; иначе молча не шлём
+[[ "$REPORT_URL" =~ ^https?://[A-Za-z0-9._:/?=%@-]+$ ]] || REPORT_URL=""
+[[ "$HELP_URL" =~ ^https?://[A-Za-z0-9._:/?=%@#-]+$ ]] || HELP_URL=""
 
 if [ "$(id -u)" -ne 0 ]; then
     exec sudo bash "$SELF" "$@"
 fi
-command -v systemctl >/dev/null && [ -d /run/systemd/system ] \
-    || die "нужен systemd (Debian/Ubuntu/Raspberry Pi OS, Arch, Fedora, openSUSE). Для OpenRC/Alpine — вручную, см. README.md"
 
-# --- Python 3.11+ с venv ---
+LOG="$(mktemp)"
+trap 'rm -f -- "$LOG"' EXIT
+# Весь вывод — на экран и в журнал: его последние строки уходят в итоговый отчёт
+exec > >(tee -a "$LOG") 2>&1
+
+say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
+
+# --- Отчёты панели. Любая ошибка отправки игнорируется: установка важнее отчёта ---
+json_str() {  # строка → содержимое JSON-строки (без кавычек), до $2 символов
+    printf '%s' "$1" | head -c "${2:-500}" | tr -d '\000-\010\013\014\016-\037' | tr '\n\t' '  ' \
+        | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+json_log() {  # последние 40 строк журнала → JSON-строка с \n
+    tail -n 40 "$LOG" | head -c 6000 | tr -d '\000-\010\013\014\016-\037' | sed 's/\\/\\\\/g; s/"/\\"/g' \
+        | sed ':a;N;$!ba;s/\n/\\n/g'
+}
+post_json() {
+    [ -n "$REPORT_URL" ] || return 0
+    if command -v curl >/dev/null 2>&1; then
+        printf '%s' "$1" | curl -fsS -m 5 -X POST -H 'Content-Type: application/json' --data-binary @- "$REPORT_URL" \
+            >/dev/null 2>&1 || true
+    elif command -v python3 >/dev/null 2>&1; then
+        printf '%s' "$1" | python3 -c '
+import sys, urllib.request
+req = urllib.request.Request(sys.argv[1], data=sys.stdin.buffer.read(), headers={"Content-Type": "application/json"})
+urllib.request.urlopen(req, timeout=5)' "$REPORT_URL" >/dev/null 2>&1 || true
+    fi
+    return 0
+}
+report() {  # шаг статус сообщение
+    post_json "{\"step\": \"$1\", \"status\": \"$2\", \"message\": \"$(json_str "${3:-}")\"}"
+}
+report_done() {  # ok|failed сообщение
+    sleep 0.3  # tee пишет журнал асинхронно
+    post_json "{\"step\": \"done\", \"status\": \"$1\", \"message\": \"$(json_str "${2:-}")\", \"log\": \"$(json_log)\"}"
+}
+
+step() { STEP="$1"; say "Шаг «$1»: $2"; report "$1" running "$2"; }
+step_ok() { report "$STEP" ok "${1:-готово}"; }
+step_warn() { echo "  внимание: $1"; report "$STEP" warn "$1"; }
+
+manual_hint() { echo "${HELP_URL:-$HERE/README.md, раздел «Установка вручную»}"; }
+
+# Ошибка шага: блок для человека, отчёт, выход. $3 — код выхода (по умолчанию 1)
+fail() {
+    trap - ERR
+    local code="${3:-1}"
+    {
+        echo "ОШИБКА на шаге «$STEP»: $1"
+        echo "Что сделать: $2"
+        echo "Установка вручную: $(manual_hint)"
+    } >&2
+    report "$STEP" failed "$1. $2"
+    report_done failed "ошибка на шаге $STEP: $1"
+    exit "$code"
+}
+# Непредвиденный сбой команды: тот же блок с текущим шагом. BASH_COMMAND — текст без раскрытия переменных (токен не виден)
+on_err() {
+    fail "команда завершилась с ошибкой (строка $1): $2" "смотрите вывод выше; после исправления запустите команду установки заново"
+}
+trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
+
+# --- Шаг python: systemd и Python 3.11+ с venv ---
+step python "проверка системы и Python"
+{ command -v systemctl >/dev/null && [ -d /run/systemd/system ]; } \
+    || fail "нужен systemd (Debian/Ubuntu/Raspberry Pi OS, Arch, Fedora, openSUSE)" \
+        "для OpenRC/Alpine и других систем — установка вручную"
 python_ok() { command -v python3 >/dev/null && python3 -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; }
-if ! python_ok; then
+# Свой Python уже стоит (поставлен раньше) — дальше используется он, системный не проверяем
+[ -x "$PREFIX/python/bin/python3" ] && OWN_PY=1
+if [ "$OWN_PY" -eq 1 ]; then
+    say "Свой Python агента (отдельно от системного)"
+    bash "$HERE/packaging/python-setup" install "$PREFIX" \
+        || fail "свой Python не поставился" "причина — в выводе выше; без --own-python агент возьмёт системный python3"
+    step_ok "Python $("$PREFIX/python/bin/python3" -c 'import sys; print("%d.%d" % sys.version_info[:2])') (свой, $PREFIX/python)"
+elif ! python_ok; then
     say "Ставлю Python"
     if command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq python3 python3-venv
     elif command -v pacman >/dev/null; then pacman -S --needed --noconfirm python
     elif command -v dnf >/dev/null; then dnf install -y -q python3
     elif command -v zypper >/dev/null; then zypper --non-interactive install python3
-    else die "не знаю пакетный менеджер — поставьте Python 3.11+ с модулем venv вручную"
+    else fail "не знаю пакетный менеджер этой системы" "поставьте Python 3.11+ с модулем venv вручную (apt install python3 python3-venv)"
     fi
-    python_ok || die "Python 3.11+ с venv так и не нашёлся (python3 --version)"
+    python_ok || fail "Python 3.11+ с venv так и не нашёлся" "проверьте python3 --version; на Debian/Ubuntu: apt install python3 python3-venv"
 fi
+[ "$OWN_PY" -eq 1 ] || step_ok "Python $(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo ?)"
 
-# --- Токен ---
-if [ -z "$TOKEN" ] && [ ! -s "$ETC/token-main" ] && [ ! -s "$OLD_ETC/token-main" ]; then
-    read -r -s -p "Токен узла из панели (ввод не виден): " TOKEN; echo
-    [ -n "$TOKEN" ] || die "токен пустой"
-fi
-# Токены панели — base64url; другое значит, что скопировалось не то (и не даём подставить кавычки/переводы строк)
-[ -z "$TOKEN" ] || [[ "$TOKEN" =~ ^[A-Za-z0-9_-]{20,200}$ ]] || die "токен похож на неверный — скопируйте его заново"
-[ -z "$NODE" ] || [[ "$NODE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die "NODE: латиница, цифры, . _ -"
-[[ "$PANEL_URL" =~ ^wss?://[A-Za-z0-9.:_/-]+$ ]] || die "PANEL_URL должен начинаться с ws:// или wss://"
+# --- Проверка значений до установки (токен разбирается в шаге token) ---
+[ -z "$NODE" ] || [[ "$NODE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] \
+    || { STEP=config; fail "имя узла «$NODE» не подходит (латиница, цифры, . _ -)" "укажите имя как в панели"; }
+[[ "$PANEL_URL" =~ ^wss?://[A-Za-z0-9.:_/-]+$ ]] \
+    || { STEP=config; fail "адрес панели должен начинаться с ws:// или wss://" "проверьте --panel-url"; }
 
-# --- Установка или обновление кода и службы ---
+# --- Шаг code: код агента, служба, sudoers (с --vpn — и помощник VPN) ---
+step code "установка кода агента"
 FRESH=0
 { [ -f "$ETC/agent.toml" ] || [ -f "$OLD_ETC/agent.toml" ]; } || FRESH=1
 ARGS=()
@@ -64,17 +168,51 @@ case "$OLED" in
     yes) ARGS+=(--display) ;;
     auto) compgen -G "/dev/i2c-*" >/dev/null && ARGS+=(--display) ;;
 esac
-HOMELAB_AGENT_QUIET=1 bash "$HERE/packaging/install.sh" "${ARGS[@]}"
+[ "$VPN" -eq 0 ] || ARGS+=(--vpn)
+[ "$OWN_PY" -eq 0 ] || ARGS+=(--own-python)
+[ -f "$HERE/packaging/install.sh" ] || fail "нет файла packaging/install.sh рядом со start-agent" "распакуйте архив агента целиком или скачайте установку заново"
+HOMELAB_AGENT_QUIET=1 bash "$HERE/packaging/install.sh" "${ARGS[@]}" \
+    || fail "install.sh завершился с ошибкой" "причина — в выводе выше (чаще всего нет сети для pip или нет места на диске)"
+step_ok "код установлен"
 
+# --- Шаг token ---
+step token "токен узла"
+FROM_SELF=0
+if [ -n "$TOKEN_FILE" ]; then
+    [ -r "$TOKEN_FILE" ] || fail "файл токена $TOKEN_FILE не читается" "создайте его заново (команда установки из панели делает это сама)"
+    TOKEN="$(head -n 1 "$TOKEN_FILE" | tr -d ' \r\n')"
+elif [ -n "$TOKEN" ]; then
+    FROM_SELF=1
+fi
+if [ -z "$TOKEN" ] && [ ! -s "$ETC/token-main" ] && [ ! -s "$OLD_ETC/token-main" ]; then
+    if [ -t 0 ]; then
+        read -r -s -p "Токен узла из панели (ввод не виден): " TOKEN; echo
+    else
+        fail "токена нет, а спросить негде (запуск без терминала)" \
+            "передайте --token-file PATH или запустите ./start-agent в терминале и вставьте токен из панели"
+    fi
+    [ -n "$TOKEN" ] || fail "токен пустой" "скопируйте токен узла из панели (Инфраструктура → Узлы)"
+fi
+# Токены панели — base64url; другое значит, что скопировалось не то (и не даём подставить кавычки/переводы строк)
+[ -z "$TOKEN" ] || [[ "$TOKEN" =~ ^[A-Za-z0-9_-]{20,200}$ ]] \
+    || fail "токен похож на неверный" "скопируйте его заново из панели целиком, без пробелов"
 if [ -n "$TOKEN" ]; then
-    say "Токен → $ETC/token-main"
-    (umask 077; printf '%s\n' "$TOKEN" > "$ETC/token-main")
-    chown "$APP_USER:$APP_USER" "$ETC/token-main"
+    # Новый файл и переименование: etc/ — каталог со sticky-битом, а с fs.protected_regular=2 (Ubuntu) даже root
+    # не может открыть на запись существующий token-main агента («Permission denied»); rename это не запрещает
+    rm -f "$ETC/.token-main.new"
+    (umask 077; printf '%s\n' "$TOKEN" > "$ETC/.token-main.new")
+    chown "$APP_USER:$APP_USER" "$ETC/.token-main.new"
+    mv -f "$ETC/.token-main.new" "$ETC/token-main"
     # Токен больше не нужен в этом файле: стираем, чтобы он не лежал в домашнем каталоге
-    sed -i 's/^TOKEN=.*/TOKEN=""/' "$SELF"
+    [ "$FROM_SELF" -eq 0 ] || sed -i 's/^TOKEN=.*/TOKEN=""/' "$SELF"
+    step_ok "токен записан в $ETC/token-main"
+else
+    step_ok "токен уже есть на узле"
 fi
 
-if [ "$FRESH" -eq 1 ]; then
+# --- Шаг config ---
+step config "конфиг агента"
+if [ "$FRESH" -eq 1 ] || [ "$EXPLICIT" -eq 1 ]; then
     NODE="${NODE:-$(hostname -s 2>/dev/null || cat /etc/hostname)}"
     say "Конфиг: узел $NODE, панель $PANEL_URL"
     sed -i "s|^node = .*|node = \"$NODE\"|; 0,/^url = .*/s||url = \"$PANEL_URL\"|" "$ETC/agent.toml"
@@ -82,18 +220,43 @@ if [ "$FRESH" -eq 1 ]; then
 else
     echo "  $ETC/agent.toml уже есть — не трогаю (изменить: sudoedit $ETC/agent.toml)"
 fi
+(cd "$APP/current" && runuser -u "$APP_USER" -- .venv/bin/python -m homelab_agent -c "$ETC/agent.toml" --check-config) \
+    || fail "конфиг агента не прошёл проверку" "исправьте то, что названо выше: sudoedit $ETC/agent.toml"
+step_ok "конфиг проверен"
 
-say "Проверка конфига"
-(cd "$APP/current" && runuser -u "$APP_USER" -- .venv/bin/python -m homelab_agent -c "$ETC/agent.toml" --check-config)
-
-say "Служба с автозапуском"
-systemctl enable homelab-agent >/dev/null 2>&1
-systemctl restart homelab-agent
-sleep 8
-journalctl -u homelab-agent -n 8 --no-pager -o cat || true
-if journalctl -u homelab-agent --since "-15s" -o cat | grep -q "подключено"; then
-    say "Готово: агент подключён к панели и запустится сам после перезагрузки"
-else
-    echo "Агент запущен, но подключения к панели ещё не видно. Смотрите: journalctl -u homelab-agent -f"
-    echo "  bad token — не совпадают имя узла (node в $ETC/agent.toml) или токен; ошибка соединения — адрес панели."
+# --- Шаг vpn ---
+if [ "$VPN" -eq 1 ]; then
+    step vpn "проверка VPN (sing-box)"
+    SB="$("$PREFIX/bin/vpn-setup" status 2>/dev/null || true)"
+    if [ -n "$SB" ]; then
+        step_ok "sing-box $SB"
+        [ -x /usr/local/bin/xray ] || step_warn "Xray не установлен — агент поставит его сам, если sing-box не подойдёт (вручную: sudo $PREFIX/bin/vpn-setup install-xray)"
+    else
+        step_warn "sing-box не установился (нет сети?) — агент повторит установку, когда панель пришлёт VPN; вручную: sudo $PREFIX/bin/vpn-setup install"
+    fi
 fi
+
+# --- Шаг service ---
+step service "служба с автозапуском"
+systemctl enable homelab-agent >/dev/null 2>&1 \
+    || fail "не удалось включить службу homelab-agent" "проверьте systemctl status homelab-agent и journalctl -xe"
+systemctl restart homelab-agent \
+    || fail "служба homelab-agent не запустилась" "смотрите journalctl -u homelab-agent -n 50"
+step_ok "служба запущена"
+
+# --- Шаг connect: до 30 с ждём «подключено» в журнале ---
+step connect "подключение к панели"
+CONNECTED=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    sleep 2
+    if journalctl -u homelab-agent --since "-60s" -o cat 2>/dev/null | grep -q "подключено"; then CONNECTED=1; break; fi
+done
+journalctl -u homelab-agent -n 8 --no-pager -o cat || true
+if [ "$CONNECTED" -eq 1 ]; then
+    step_ok "агент подключён к панели"
+    say "Готово: агент подключён к панели и запустится сам после перезагрузки"
+    report_done ok "агент подключён к панели"
+    exit 0
+fi
+fail "служба запущена, но за 30 секунд подключения к панели нет" \
+    "проверьте имя узла (node в $ETC/agent.toml должно совпасть с именем в панели), токен (bad token в журнале) и адрес панели; журнал: journalctl -u homelab-agent -f" 2

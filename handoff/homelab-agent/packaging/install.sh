@@ -4,6 +4,7 @@
 #   sudo ./packaging/install.sh             # сервер без дисплея
 #   sudo ./packaging/install.sh --display   # Raspberry Pi с OLED (Pillow + luma.oled, группа i2c)
 #   sudo ./packaging/install.sh --upgrade   # обновить код и зависимости, перенести старую раскладку, перезапустить
+#   sudo ./packaging/install.sh --own-python  # свой Python в /opt/homelab-agent/python (системный не нужен и не трогается)
 #
 # Идемпотентен: существующие agent.toml и токены не трогает. Службу не включает при первой
 # установке — сначала владелец кладёт токены и проверяет конфиг (см. вывод в конце).
@@ -37,10 +38,12 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DISPLAY_OPT=0
 UPGRADE=0
 VPN_OPT=0
+OWN_PY=0
 for arg in "$@"; do
     case "$arg" in
         --display) DISPLAY_OPT=1 ;;
         --vpn) VPN_OPT=1 ;;
+        --own-python) OWN_PY=1 ;;
         --upgrade) UPGRADE=1 ;;
         -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
         *) echo "Неизвестный аргумент: $arg" >&2; exit 2 ;;
@@ -52,10 +55,18 @@ die() { echo "ОШИБКА: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "запустите через sudo"
 [ -f "$SRC/homelab_agent/__main__.py" ] || die "не найден пакет homelab_agent рядом со скриптом ($SRC)"
-command -v python3 >/dev/null || die "нужен python3 (apt install python3 python3-venv)"
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+# Python агента: свой (--own-python или уже поставленный раньше — в $ROOT/python) или системный python3
+if [ "$OWN_PY" -eq 1 ]; then
+    say "Свой Python (python-setup): отдельно от системного"
+    install -d -m 0755 -o root -g root "$ROOT"
+    "$SRC/packaging/python-setup" install "$ROOT" || die "свой Python не поставился (текст выше)"
+fi
+PY="$("$SRC/packaging/python-setup" path "$ROOT")"
+PY="${PY:-python3}"
+command -v "$PY" >/dev/null || die "нужен python3 (apt install python3 python3-venv) или --own-python"
+"$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
     || die "нужен Python 3.11+ (Raspberry Pi OS bookworm, Debian 12, Ubuntu 24.04)"
-python3 -c 'import venv, ensurepip' 2>/dev/null || die "нужен модуль venv: apt install python3-venv"
+"$PY" -c 'import venv, ensurepip' 2>/dev/null || die "нужен модуль venv: apt install python3-venv (или --own-python)"
 
 say "Пользователь $APP_USER"
 if ! id "$APP_USER" >/dev/null 2>&1; then
@@ -174,8 +185,23 @@ install -m 0644 -o root -g root "$SRC/homelab_agent/guard.py" "$BIN/guard.py"
 install -m 0755 -o root -g root "$SRC/uninstall-agent" "$BIN/uninstall-agent"
 
 say "Виртуальное окружение и зависимости"
+# /tmp на Pi — tmpfs в памяти (сотни МБ): занят — ensurepip и pip падают с «No space left on device».
+# Мало места — временные файлы на диск (/var/tmp); системный /tmp не трогаем
+if [ "$(df -Pk /tmp 2>/dev/null | awk 'NR==2 {print $4}')" -lt 307200 ] 2>/dev/null; then
+    echo "  в /tmp меньше 300 МБ свободно — временные файлы установки в /var/tmp"
+    export TMPDIR=/var/tmp
+fi
+# venv на другом Python (переход на свой Python или обратно) — пересоздаём, иначе остался бы на прежнем
+if [ -x "$REL/.venv/bin/python" ] && [ "$("$REL/.venv/bin/python" -c 'import sys; print(sys.base_prefix)' 2>/dev/null)" != "$("$PY" -c 'import sys; print(sys.base_prefix)')" ]; then
+    rm -r -f -- "$REL/.venv"
+fi
+# Остаток прерванной попытки (venv есть, а pip нет — ensurepip упал) — тоже пересоздаём
+if [ -x "$REL/.venv/bin/python" ] && ! "$REL/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
+    echo "  venv без pip (прошлая установка прервалась) — пересоздаю"
+    rm -r -f -- "$REL/.venv"
+fi
 if [ ! -x "$REL/.venv/bin/python" ]; then
-    python3 -m venv "$REL/.venv"
+    "$PY" -m venv "$REL/.venv" || { rm -r -f -- "$REL/.venv"; die "venv не создан (текст выше): проверьте место в /tmp и на диске (df -h / /tmp) и пакет python3-venv; или установите с --own-python"; }
 fi
 # python -m pip, а не bin/pip: у перенесённых venv в скриптах прежний абсолютный путь
 "$REL/.venv/bin/python" -m pip install --quiet --disable-pip-version-check --upgrade pip
@@ -239,6 +265,8 @@ fi
 # панели. Правила действий и vpn, которые владелец уже добавил, сохраняются (наш блок между маркерами заменяется).
 # Старый файл homelab-agent-update вливается и удаляется. Проверяется visudo — с ошибкой ничего не меняется.
 SYSTEMCTL="$(command -v systemctl)"
+# vpn-setup из агента — через systemd-run: отдельная служба вне песочницы агента (там /usr только для чтения)
+SETUP_RUN="$(command -v systemd-run) --wait --pipe --collect --quiet"
 if command -v visudo >/dev/null; then
     tmp_sudoers="$(mktemp)"
     if [ -f "$SUDOERS" ]; then
@@ -248,9 +276,22 @@ if command -v visudo >/dev/null; then
         echo '# BEGIN homelab-agent managed (install.sh перезаписывает этот блок; свои правила — вне него)'
         echo "$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL restart homelab-agent.service"
         echo "$APP_USER ALL=(root) NOPASSWD: $BIN/uninstall-agent --from-panel"
-        echo '# Правила vpn и действий — по образцу в bin/sudoers.example, добавляйте вне этого блока:'
-        echo "# $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL restart homelab-vpn.service"
-        echo "# $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL stop homelab-vpn.service"
+        if [ "$VPN_OPT" -eq 1 ]; then
+            echo "$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL restart homelab-vpn.service"
+            echo "$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL stop homelab-vpn.service"
+            echo "$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL restart homelab-vpn-xray.service"
+            echo "$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL stop homelab-vpn-xray.service"
+            echo "$APP_USER ALL=(root) NOPASSWD: $SETUP_RUN $BIN/vpn-setup install"
+            echo "$APP_USER ALL=(root) NOPASSWD: $SETUP_RUN $BIN/vpn-setup install-xray"
+        else
+            echo '# Правила vpn и действий — по образцу в bin/sudoers.example, добавляйте вне этого блока:'
+            echo "# $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL restart homelab-vpn.service"
+            echo "# $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL stop homelab-vpn.service"
+            echo "# $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL restart homelab-vpn-xray.service"
+            echo "# $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL stop homelab-vpn-xray.service"
+            echo "# $APP_USER ALL=(root) NOPASSWD: $SETUP_RUN $BIN/vpn-setup install"
+            echo "# $APP_USER ALL=(root) NOPASSWD: $SETUP_RUN $BIN/vpn-setup install-xray"
+        fi
         echo '# END homelab-agent managed'
     } >> "$tmp_sudoers"
     if [ -f "$OLD_SUDOERS" ]; then
@@ -272,6 +313,28 @@ else
     echo "  внимание: нет visudo — правила sudo не поставлены, обновление и удаление из панели недоступны"
 fi
 
+# [vpn] enabled = true в agent.toml; повтор ничего не дублирует (раздел есть — правим/добавляем одну строку)
+enable_vpn_in_config() {
+    python3 - "$ETC/agent.toml" <<'PY'
+import re, sys
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().split("\n")
+start = next((i for i, l in enumerate(lines) if re.match(r"\s*\[vpn\]\s*(#.*)?$", l)), None)
+if start is None:
+    lines += ["", "# VPN узла (дописано install.sh --vpn)", "[vpn]", "enabled = true"]
+else:
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"\s*\[", lines[i])), len(lines))
+    for i in range(start + 1, end):
+        if re.match(r"\s*enabled\s*=", lines[i]):
+            lines[i] = "enabled = true"
+            break
+    else:
+        lines.insert(start + 1, "enabled = true")
+open(path, "w", encoding="utf-8").write("\n".join(lines))
+PY
+    echo "  в $ETC/agent.toml включено [vpn] enabled = true"
+}
+
 say "Службы systemd"
 # Юниты лежат в $SYSD (root), в $UNIT_DIR — ссылки (то же, что делает `systemctl link`, но замена атомарная,
 # в том числе поверх обычного файла прежней установки). Удаление папки + ссылок убирает всё.
@@ -280,11 +343,15 @@ install -m 0644 -o root -g root "$SRC/packaging/homelab-agent.service" "$SRC/pac
 if [ "$VPN_OPT" -eq 1 ]; then
     # VPN узла: каталог конфига — только агенту; служба sing-box ставится, но не включается (включит панель)
     install -d -m 0700 -o "$APP_USER" -g "$APP_USER" "$ETC/vpn"
-    install -m 0644 -o root -g root "$SRC/packaging/homelab-vpn.service" "$SYSD/"
-    command -v sing-box >/dev/null || echo "  внимание: sing-box не найден — установите (https://sing-box.sagernet.org/installation/) в /usr/local/bin"
-    echo "  добавьте в $ETC/agent.toml: [vpn] enabled = true; в sudoers — строки homelab-vpn из $BIN/sudoers.example"
+    install -m 0644 -o root -g root "$SRC/packaging/homelab-vpn.service" "$SRC/packaging/homelab-vpn-xray.service" "$SYSD/"
+    # Системный пользователь движка Xray: без входа и без дома, ничего не владеет
+    if ! id hl-xray >/dev/null 2>&1; then
+        useradd --system --no-create-home --home-dir /nonexistent --shell "$(command -v nologin || echo /bin/false)" hl-xray
+    fi
+    install -m 0755 -o root -g root "$SRC/packaging/vpn-setup" "$BIN/vpn-setup"
+    enable_vpn_in_config
 elif [ -e "$UNIT_DIR/homelab-vpn.service" ]; then
-    install -m 0644 -o root -g root "$SRC/packaging/homelab-vpn.service" "$SYSD/"
+    install -m 0644 -o root -g root "$SRC/packaging/homelab-vpn.service" "$SRC/packaging/homelab-vpn-xray.service" "$SYSD/"
 fi
 link_unit() {
     local name="$1"
@@ -293,11 +360,18 @@ link_unit() {
     ln -sfn "$SYSD/$name" "$UNIT_DIR/$name.new"
     mv -T -- "$UNIT_DIR/$name.new" "$UNIT_DIR/$name"
 }
-for u in homelab-agent.service homelab-agent-guard.service homelab-agent-guard.timer homelab-vpn.service; do
+for u in homelab-agent.service homelab-agent-guard.service homelab-agent-guard.timer homelab-vpn.service homelab-vpn-xray.service; do
     link_unit "$u"
 done
 systemctl daemon-reload
 systemctl enable --now homelab-agent-guard.timer >/dev/null 2>&1 || echo "  внимание: таймер сторожа не включился"
+if [ "$VPN_OPT" -eq 1 ]; then
+    # Сбой сети — не ошибка установки: агент повторит vpn-setup install при первом конфиге от панели
+    say "sing-box (vpn-setup install)"
+    "$BIN/vpn-setup" install || echo "  внимание: sing-box не поставился (см. текст выше) — агент попробует снова, когда панель пришлёт VPN"
+    say "Xray (vpn-setup install-xray)"
+    "$BIN/vpn-setup" install-xray || echo "  внимание: Xray не поставился (см. текст выше) — агент попробует снова, если sing-box не подойдёт"
+fi
 
 # ---- Старая раскладка больше не нужна: удаляем только то, что перенесено и проверено ----
 if [ "$MOVE_OLD_ETC" -eq 1 ]; then rm -r -f -- "$OLD_ETC"; fi
@@ -329,9 +403,9 @@ cat <<EOF
 
 Готово. Дальше (токены не попадают на экран и в историю команд):
   1) Токен узла из панели (Инфраструктура → Узлы → добавить узел), для каждой [[panel]] свой файл:
-       sudo sh -c 'umask 077; cat > $ETC/token-main'
+       sudo sh -c 'umask 077; cat > $ETC/.token-main.new'
      вставьте токен (Ctrl+Shift+V), Enter, затем Ctrl-D; потом:
-       sudo chown $APP_USER: $ETC/token-main
+       sudo chown $APP_USER: $ETC/.token-main.new && sudo mv -f $ETC/.token-main.new $ETC/token-main
   2) Конфиг: sudoedit $ETC/agent.toml   (node — как имя узла в панели, url панели)
      Все остальные настройки с примерами — $BIN/agent.full.toml
   3) Права на действия (если есть [actions.*]): sudo visudo -f $SUDOERS

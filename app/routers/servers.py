@@ -8,7 +8,7 @@ from app.models import Device, Link, Node, Server, Service, User
 from app.routers import console
 from app.routers.auth import safe_next
 from app.routers.home import kpi, widget
-from app.services import agent_remote, agents, audit, infra, monitoring
+from app.services import ssh_access, agent_remote, agents, audit, infra, monitoring
 from app.services.security import encrypt
 from app.utils import utcnow
 from app.web import json_download, render, require
@@ -67,13 +67,15 @@ def servers_page(request: Request, user: User = Depends(require("servers.view"))
 @router.get("/servers/{server_id}")
 def server_page(server_id: int, request: Request, user: User = Depends(require("servers.view")),
                 db: Session = Depends(get_db)):
-    """Только информация: статус, RAM, диски, история, сервисы, датчики узла. Настройка — в настройках узла."""
+    """Вся информация: статус, сеть, VPN, RAM, диски, истории, сервисы, датчики и события узла. Настройка — в настройках узла."""
     server = _get_server(db, server_id)
     device = db.scalar(select(Device).where(Device.server_id == server.id)) if user.can("topology.view") else None
     node = db.scalar(select(Node).where(Node.server_id == server.id).order_by(Node.id))
-    return render(request, "servers/detail.html",
-                  {"title": server.name, "s": monitoring.server_summary(db, server), "device": device,
-                   "node": node}, user, db)
+    ctx = {"title": server.name, "s": monitoring.server_summary(db, server), "device": device, "node": node}
+    if node:
+        from app.routers import nodes as nodes_router  # здесь, а не вверху: nodes импортирует этот модуль
+        ctx.update(nodes_router.info_context(db, node, user))
+    return render(request, "servers/detail.html", ctx, user, db)
 
 
 def settings_context(db: Session, user: User, server: Server, back: str, delete_action: str) -> dict:
@@ -124,7 +126,27 @@ async def server_create(request: Request, user: User = Depends(require("servers.
     if form.get("on_map") == "on" and user.can("topology.edit"):
         _place_on_map(db, server, str(form.get("uplink_id", "")))
     db.commit()
+    if form.get("install_agent") == "on":
+        return _auto_install(request, db, user, server, form)
     return _back(form, "/servers")
+
+
+def _auto_install(request: Request, db: Session, user: User, server: Server, form) -> RedirectResponse:
+    """«Новый сервер» с галочкой «Установить агента»: сразу ставим по SSH с введённым паролем (он не сохраняется),
+    сбор — agent; ход установки — в настройках узла (#agent)."""
+    from app.routers import agent_install  # здесь: agent_install импортирует модули серверов
+    if not user.can("servers.console"):
+        raise HTTPException(403, "Для установки по SSH нужно право servers.console")
+    password = str(form.get("ssh_password", ""))[:256]
+    try:
+        target = ssh_access.resolve(server, None, password=password)
+    except ssh_access.BadTarget as exc:
+        raise HTTPException(400, str(exc)) from None
+    server.collector = "agent"
+    vpn = form.get("vpn") == "on" and user.can("settings.manage")
+    node = agent_install.start_ssh_install(request, db, user, server, target, str(form.get("sudo_password", ""))[:256],
+                                           vpn, form.get("own_python") == "on")
+    return RedirectResponse(f"/nodes/{node.id}#agent", 303)
 
 
 def _place_on_map(db: Session, server: Server, uplink_raw: str) -> None:

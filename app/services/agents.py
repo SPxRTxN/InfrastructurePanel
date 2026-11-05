@@ -5,6 +5,7 @@
 из списка, который агент объявил в `hello` (allowlist хранится на узле).
 """
 import asyncio
+import ipaddress
 import json
 import math
 import re
@@ -62,6 +63,41 @@ def _str(v, limit: int) -> str:
     return v[:limit] if isinstance(v, str) else ""
 
 
+IFACE_NAME_RE = re.compile(r"^[\w.:@-]{1,32}$")
+MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+MAX_IFACES = 16
+
+
+def _addrs(raw, version: int) -> list[str]:
+    """До 8 адресов нужной версии; всё, что не разбирается как IP, отбрасывается."""
+    out = []
+    for a in (raw if isinstance(raw, list) else [])[:8]:
+        try:
+            if isinstance(a, str) and ipaddress.ip_address(a).version == version:
+                out.append(a)
+        except ValueError:
+            pass
+    return out
+
+
+def parse_interfaces(raw) -> list[dict]:
+    """Сетевые интерфейсы из hello.info: строгая проверка полей, лишнее отбрасывается."""
+    out = []
+    for i in (raw if isinstance(raw, list) else [])[:MAX_IFACES]:
+        if not (isinstance(i, dict) and isinstance(i.get("name"), str) and IFACE_NAME_RE.match(i["name"])):
+            continue
+        mac = i.get("mac")
+        speed = i.get("speed")
+        out.append({
+            "name": i["name"],
+            "mac": mac if isinstance(mac, str) and (mac == "" or MAC_RE.match(mac)) else "",
+            "ipv4": _addrs(i.get("ipv4"), 4), "ipv6": _addrs(i.get("ipv6"), 6),
+            "up": i.get("up") is True,
+            "speed": speed if isinstance(speed, int) and not isinstance(speed, bool) and 0 <= speed <= 1_000_000 else 0,
+        })
+    return out
+
+
 def parse_hello(data) -> dict | str:
     if not isinstance(data, dict) or data.get("type") != "hello":
         return "expected hello"
@@ -89,6 +125,8 @@ def parse_hello(data) -> dict | str:
     for k in ("threads", "memory_kb", "boot_ts"):
         if isinstance(info_raw.get(k), (int, float)) and math.isfinite(info_raw[k]):
             info[k] = info_raw[k]
+    if "interfaces" in info_raw:
+        info["interfaces"] = parse_interfaces(info_raw["interfaces"])
     # Возможности, которые владелец включил в конфиге агента (например, "vpn") — панель без них не шлёт команд
     features = data.get("features") if isinstance(data.get("features"), list) else []
     info["features"] = sorted({f for f in features if isinstance(f, str) and NAME_RE.match(f)})[:20]

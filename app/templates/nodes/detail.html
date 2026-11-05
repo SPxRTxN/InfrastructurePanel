@@ -10,46 +10,16 @@
 {% block content %}
 <a href="/nodes" class="muted">{{ icon("arrow-left") }} Все узлы</a>
 
-<div class="kpis">
-  <div class="card kpi"><span class="kpi-icon">{{ icon("activity") }}</span><div>
-    <b>{% if n.online %}Онлайн{% elif n.last_seen %}Офлайн{% else %}—{% endif %}</b><small>Статус{% if n.version %} · агент {{ n.version }}{% endif %}</small></div></div>
-  <div class="card kpi"><span class="kpi-icon">{{ icon("cpu") }}</span><div>
-    <b>{{ "%.0f"|format(n.cpu) ~ "%" if n.cpu is not none else "—" }}</b><small>CPU{% if n.temp is not none %} · {{ "%.1f"|format(n.temp) }} °C{% endif %}</small></div></div>
-  <div class="card kpi"><span class="kpi-icon">{{ icon("memory-stick") }}</span><div>
-    <b>{{ n.ram.used | bytes if n.ram else "—" }}</b><small>RAM занято из {{ n.ram.total | bytes if n.ram else "—" }}</small></div></div>
-  <div class="card kpi"><span class="kpi-icon">{{ icon("clock") }}</span><div>
-    <b data-time="{{ n.last_seen or '' }}">{{ n.last_seen or "не подключался" }}</b><small>Последние данные</small></div></div>
-</div>
+<p class="node-status">
+  <b>{% if n.online %}Онлайн{% elif n.last_seen %}Офлайн{% else %}Не подключался{% endif %}</b>{% if n.version %} · агент {{ n.version }}{% endif %}
+  {% if n.last_seen %}· <span data-time="{{ n.last_seen }}">{{ n.last_seen }}</span>{% endif %}
+  {% if n.server %}· <a href="/servers/{{ n.server.id }}">Информация — на странице сервера</a>{% endif %}
+</p>
 
-<section class="card">
-  <h3>Узел</h3>
-  <dl class="meta-dl">
-    <dt>IP</dt><dd>{{ n.ips | join(", ") or "—" }}{% if n.remote_ip %} <small class="muted">(подключён с {{ n.remote_ip }})</small>{% endif %}</dd>
-    {% for k, label in [("hostname", "Имя хоста"), ("os", "ОС"), ("kernel", "Ядро"), ("cpu", "Процессор"), ("threads", "Потоков")] %}
-    {% if n.info[k] %}<dt>{{ label }}</dt><dd>{{ n.info[k] }}</dd>{% endif %}{% endfor %}
-    {% if n.uptime %}<dt>Работает</dt><dd>{{ (n.uptime // 86400) | int }} д {{ ((n.uptime % 86400) // 3600) | int }} ч</dd>{% endif %}
-  </dl>
-</section>
-
-<section class="card">
-  <h3>Диски</h3>
-  <div class="table-wrap">
-  <table class="table">
-    <thead><tr><th>Раздел</th><th>Размер</th><th>Занято</th><th>Свободно</th><th class="col-wide"></th></tr></thead>
-    <tbody>
-    {% for d in n.disks %}
-      <tr><td><b>{{ d.mount }}</b>{% if d.device %}<br><small class="muted">{{ d.device }}</small>{% endif %}</td><td>{{ d.size | bytes }}</td><td>{{ d.used | bytes }}</td><td>{{ d.free | bytes }}</td>
-        <td><meter class="bar" min="0" max="100" low="75" high="90" optimum="10" value="{{ percent(d.used, d.size) }}"></meter> {{ percent(d.used, d.size) }}%</td></tr>
-    {% else %}
-      <tr><td colspan="5" class="muted">Агент не прислал данных о разделах</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</section>
-
+<div class="tile-grid">
 <section class="card" id="actions">
-  <h3>Восстановление</h3>
+  <div class="card-head"><h3>{{ icon("refresh-cw") }} Восстановление</h3></div>
+  <p class="card-summary">Действий: {{ n.actions | length }}</p>
   {% if n.actions %}
   <p class="muted small">Действия заданы в конфиге самого узла — панель передаёт только имя.</p>
   <div class="row">
@@ -74,31 +44,10 @@
   {% endif %}
 </section>
 
-{% if events %}
-<section class="card">
-  <h3>События</h3>
-  <ul class="list-plain">{% for e in events %}
-    <li><span class="status {{ 'bad' if e.level == 'error' else ('' if e.level == 'info' else 'warn') }}">{{ e.level }}</span>
-      <small data-time="{{ e.ts.isoformat() }}Z">{{ e.ts }}</small> {{ e.text }}</li>{% endfor %}
-  </ul>
-</section>
-{% endif %}
-
-<section class="card">
-  <h3>Датчики ({{ n.sensor_count }})</h3>
-  {% for kind, sensors in groups %}
-  <details class="sub-item"><summary>{{ kind }} <small class="muted">{{ sensors | length }}</small></summary>
-    <div class="table-wrap"><table class="table"><tbody>
-      {% for s in sensors %}<tr><td>{{ s.label }}</td><td><code>{{ s.id }}</code></td>
-        <td>{% if s.value is none %}—{% elif s.unit == "B" %}{{ s.value | int | bytes }}{% else %}{{ "%.2f"|format(s.value) | replace(".00", "") }} {{ s.unit }}{% endif %}</td></tr>{% endfor %}
-    </tbody></table></div>
-  </details>
-  {% else %}<p class="muted">Агент ещё не подключался.</p>{% endfor %}
-</section>
-
 {% if can_edit %}
-<section class="card">
-  <h3>Управление</h3>
+<section class="card" id="binding">
+  <div class="card-head"><h3>{{ icon("settings") }} Привязка и токен</h3></div>
+  <p class="card-summary">{% if n.server %}Сервер: {{ n.server.name }}{% else %}Сервер не привязан{% endif %}</p>
   <form method="post" action="/nodes/{{ n.id }}" class="form form-grid">{{ csrf() }}
     <label>Сервер<select name="server_id">
       <option value="">— не привязывать —</option>
@@ -127,6 +76,5 @@
 </section>
 {% if srv is defined %}{% include "servers/_settings.html" %}{% endif %}
 {% endif %}
-{% endblock %}
-{% block scripts %}
+</div>
 {% endblock %}

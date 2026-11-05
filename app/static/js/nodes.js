@@ -5,7 +5,7 @@
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   Chart.defaults.color = css("--muted");
   Chart.defaults.borderColor = css("--border");
-  const palette = [css("--accent"), css("--accent-2"), css("--ok"), css("--warn"), "#60a5fa", "#a78bfa", "#94a3b8"];
+  const palette = window.chartPalette || [css("--accent")];  // общая палитра — в charts.js
   const TITLES = { temperature: "Температура, °C", load: "Нагрузка", memory: "Память, %", disk: "Диски, %",
                    frequency: "Частота", fan: "Вентиляторы", power: "Питание", latency: "Задержка" };
 
@@ -33,7 +33,7 @@
     const wrap = document.createElement("div");
     wrap.innerHTML = `<h4 class="muted small">${escapeHtml(TITLES[kind] || kind)}</h4><div class="chart-box sm"><canvas></canvas></div>`;
     box.appendChild(wrap);
-    new Chart(wrap.querySelector("canvas"), {
+    const chart = new Chart(wrap.querySelector("canvas"), {
       type: "line",
       data: { labels, datasets: rows.map((r, i) => ({ label: r.label, data: r.values, borderColor: palette[i % palette.length],
                                                        tension: 0.35, pointRadius: 0, spanGaps: true })) },
@@ -41,5 +41,6 @@
                  scales: { x: { ticks: { maxTicksLimit: 10 } }, ...(kind === "memory" || kind === "disk" ? { y: { min: 0, max: 100 } } : {}) },
                  plugins: { legend: { display: rows.length > 1 } } },
     });
+    if (window.chartZoom) chartZoom.attach(chart, TITLES[kind] || kind);
   });
 })();

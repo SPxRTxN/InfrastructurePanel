@@ -33,6 +33,10 @@ class VpnAssignment(Base):
     subscription_id: Mapped[int] = mapped_column(ForeignKey("vpn_subscriptions.id", ondelete="CASCADE"))
     server_key: Mapped[str] = mapped_column(String(16))
     server_name: Mapped[str] = mapped_column(String(128), default="")
+    # Отпечаток uTLS вместо указанного в подписке («» — как в подписке); помогает, если reality не проходит
+    fingerprint: Mapped[str] = mapped_column(String(16), default="")
+    # Движок, на котором поднялось (из ответа агента): "sing-box" | "xray" | ""
+    engine: Mapped[str] = mapped_column(String(16), default="")
     mode: Mapped[str] = mapped_column(String(16), default="all")  # all — весь трафик узла; off — выключено
     # pending — ждёт агента; applied — применено; failed — откатился; unsupported — агент без VPN
     status: Mapped[str] = mapped_column(String(16), default="pending")

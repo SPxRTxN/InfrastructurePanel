@@ -14,6 +14,7 @@ from .transport import PanelClient
 from .updater import Updater, parse_update, run_cmd
 from .tunnel import TunnelManager, parse_terminal
 from .vpn import VpnManager, parse_vpn
+from .vpn import info as vpn_info
 from .wol import WolSender, parse_wol
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class Agent:
             self.display_cfg = parse_display(cfg.display)
         self._net: tuple[float, str, str] = (0.0, "", "")  # (когда, IP, интерфейс) — кэш для дисплея
         vpn_cfg = parse_vpn(cfg.vpn)
+        self.vpn_cfg = vpn_cfg
         self.vpn = VpnManager(vpn_cfg, [p.url for p in cfg.panels]) if vpn_cfg.enabled else None
         wol_cfg = parse_wol(cfg.wol)
         self.wol = WolSender(wol_cfg) if wol_cfg.enabled else None
@@ -73,6 +75,7 @@ class Agent:
     def hello(self, token: str) -> dict:
         msg = protocol.hello(self.cfg.node, token, self.sensors(), self.actions.describe(), sysinfo.collect())
         # Возможности, включённые владельцем: панель шлёт сообщения vpn только тем, кто их объявил
+        msg.setdefault("info", {})["vpn"] = vpn_info(self.vpn_cfg)
         msg["features"] = [name for name, on in (("vpn", self.vpn), ("wol", self.wol), ("update", self.updater)) if on]
         msg["features"] += self.remote_features
         if self.tunnels:

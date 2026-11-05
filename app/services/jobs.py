@@ -2,7 +2,7 @@
 import asyncio
 
 from app.db import SessionLocal, checkpoint_wal
-from app.services import agent_updates, agents, alerts, audit, backup, calendar, infra, maintenance, monitoring, recording
+from app.services import agent_install, agent_updates, agents, alerts, audit, backup, calendar, infra, maintenance, monitoring, recording
 from app.services.scheduler import job
 from app.services.settings_registry import get_setting
 
@@ -39,6 +39,7 @@ async def retention() -> None:
         infra.cleanup(db)
         audit.cleanup(db)
         recording.cleanup(db)
+        agent_install.cleanup(db)
 
 
 @job("reminders", lambda: 30)

@@ -38,16 +38,18 @@
     {{ csrf() }}
     <input type="hidden" name="kind" value="{{ kind }}">
     <label>Название<input name="label" maxlength="64" placeholder="{{ 'BMC' if kind == 'bmc' else 'root' }}"></label>
-    <label>Адрес <span class="muted">(пусто — адрес устройства{{ "; у BMC свой" if kind == "bmc" }})</span><input name="host" maxlength="255" placeholder="{{ srv.host }}"></label>
-    <label>Порт SSH <span class="muted">(пусто — 22)</span><input name="port" type="number" min="1" max="65535" placeholder="22"></label>
+    <label>Адрес<input name="host" maxlength="255" placeholder="{{ srv.host }}"></label>
+    <label>Порт SSH<input name="port" type="number" min="1" max="65535" placeholder="22"></label>
     <label>Пользователь<input name="username" required maxlength="64" autocomplete="off"></label>
-    <label>Пароль <span class="muted">(пусто — вход по ключу)</span><input name="password" type="password" maxlength="256" autocomplete="new-password"></label>
+    <label>Пароль<input name="password" type="password" maxlength="256" autocomplete="new-password" placeholder="пусто — по ключу"></label>
     <div><button class="btn btn-primary">{{ icon("plus") }} Сохранить вход</button></div>
   </form>
+  <small class="field-note">Пустые адрес и порт — {{ "свои у BMC" if kind == "bmc" else "как у устройства, порт 22" }}.</small>
 {% endmacro %}
 
 <section class="card" id="settings">
   <div class="card-head"><h3>{{ icon("settings") }} Устройство</h3></div>
+  <p class="card-summary">{{ {"server": "Сервер", "pc": "Компьютер"}.get(srv.kind, "Другое") }} · {{ srv.host }} · сбор: {{ srv.collector }}</p>
   <form method="post" action="/servers/{{ srv.id }}" class="form form-grid">
     {{ csrf() }}
     <input type="hidden" name="back" value="{{ settings_back }}">
@@ -70,18 +72,25 @@
   </form>
   <p class="muted small">Для ssh: выполняется одна команда только для чтения (<code>df -B1 …; free -b</code>).</p>
 </section>
+<section class="card" id="agent-vpn">
+  <div class="card-head"><h3>{{ icon("globe") }} VPN</h3></div>
+  <p class="card-summary">{% if user.can("settings.manage") %}<span id="sum-vpn">VPN: загрузка…</span> · {% endif %}<span id="sum-agent">агент: загрузка…</span></p>
+  {% if user.can("settings.manage") %}<div class="card-sub" id="vpn" hx-get="/servers/{{ srv.id }}/vpn" hx-trigger="load" hx-swap="outerHTML"><p class="muted">Загрузка…</p></div>{% endif %}
+  {% include "servers/_agent_install.html" %}
+</section>
 
 {% if access %}
 <section class="card" id="access">
   <div class="card-head"><h3>{{ icon("terminal") }} Подключение к ОС</h3>
     <a class="btn" href="/servers/{{ srv.id }}/console">{{ icon("terminal") }} Консоль и файлы</a></div>
-  <p class="muted">Ключ хоста запоминается сам при первом подключении; если он сменится, панель откажется подключаться
-    (возможна подмена). После переустановки ОС или BMC сбросьте ключ. Пароли хранятся зашифрованными и не показываются.</p>
+  <p class="card-summary">Входов в ОС: {{ access.creds | selectattr("kind", "equalto", "os") | list | length }}</p>
+  <small class="field-note">Ключ хоста запоминается при первом подключении; при смене панель откажет (возможна подмена) — после переустановки сбросьте. Пароли зашифрованы.</small>
   {{ cred_block("os", "Входы в ОС") }}
 </section>
 {% if srv.kind == "server" %}
 <section class="card" id="bmc">
   <div class="card-head"><h3>{{ icon("cpu") }} Подключение к BMC</h3></div>
+  <p class="card-summary">Входов в BMC: {{ access.creds | selectattr("kind", "equalto", "bmc") | list | length }}</p>
   <p class="muted">iDRAC, iLO, IPMI: у BMC свой адрес — укажите его во входе.</p>
   {{ cred_block("bmc", "Входы в BMC") }}
 </section>
@@ -92,6 +101,7 @@
   <div class="card-head"><h3>{{ icon("activity") }} Сервисы</h3>
     <form method="post" action="/servers/{{ srv.id }}/check">{{ csrf() }}<input type="hidden" name="back" value="{{ settings_back }}">
       <button class="btn">{{ icon("refresh-cw") }} Проверить сейчас</button></form></div>
+  <p class="card-summary">Сервисов: {{ srv.services | length }} шт.</p>
   <div class="table-wrap">
   <table class="table">
     <thead><tr><th>Имя</th><th>Проверка</th><th>Адрес</th><th>Статус</th><th></th></tr></thead>

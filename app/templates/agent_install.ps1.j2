@@ -1,0 +1,82 @@
+# Установка homelab-agent на Windows с панели (одноразовая ссылка, действует 30 минут).
+# Запуск: PowerShell от имени администратора → команда из панели (irm … | iex).
+# Значения подставлены панелью строками в одинарных кавычках (filter ps); из окружения ничего не берётся.
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"   # без полосы Invoke-WebRequest скачивание в разы быстрее
+
+$Node = {{ node | ps }}
+$PanelWs = {{ panel_ws | ps }}
+$Sha256 = {{ sha256 | ps }}
+$Version = {{ version | ps }}
+$BundleUrl = {{ bundle_url | ps }}
+$TokenUrl = {{ token_url | ps }}
+$ReportUrl = {{ report_url | ps }}
+$HelpUrl = {{ help_url | ps }}
+$TokenFile = Join-Path $env:ProgramData "homelab-agent\token-main"
+
+function Report($step, $status, $msg) {
+    try {
+        $body = @{ step = $step; status = $status; message = "$msg".Substring(0, [Math]::Min(400, "$msg".Length)) } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Method Post -Uri $ReportUrl -ContentType "application/json; charset=utf-8" `
+            -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 5 | Out-Null
+    } catch { }  # ошибки отчёта установку не ломают
+}
+
+function Fail($step, $msg, $todo) {
+    Report $step failed $msg
+    Write-Host "ОШИБКА на шаге «$step»: $msg" -ForegroundColor Red
+    Write-Host "Что сделать: $todo"
+    Write-Host "Установка вручную: $HelpUrl (Руководство, «Узлы и агенты»)"
+    return
+}
+
+& {
+    $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $admin) {
+        Write-Host "Нужен PowerShell от имени администратора: ПКМ по «Пуск» → «Терминал (администратор)», затем ту же команду." -ForegroundColor Red
+        return
+    }
+    if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
+        return Fail download "нет tar.exe" "нужна Windows 10 1803+ / Windows Server 2019+"
+    }
+
+    $tmp = Join-Path $env:TEMP ("homelab-agent-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    try {
+        Report download running "скачивание агента $Version"
+        try { Invoke-WebRequest -UseBasicParsing -Uri $BundleUrl -OutFile "$tmp\agent.tar.gz" -TimeoutSec 180 }
+        catch { return Fail download "архив агента не скачался: $($_.Exception.Message)" "проверьте, что этот компьютер открывает адрес панели; ссылка действует 30 минут — выпустите новую" }
+        if ((Get-FileHash -Algorithm SHA256 "$tmp\agent.tar.gz").Hash.ToLower() -ne $Sha256) {
+            return Fail download "контрольная сумма архива не совпала" "повторите установку; если повторяется — обновите панель"
+        }
+        New-Item -ItemType Directory -Path "$tmp\agent" | Out-Null
+        tar.exe -xzf "$tmp\agent.tar.gz" -C "$tmp\agent"
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$tmp\agent\start-agent.ps1")) {
+            return Fail download "архив не распаковался или в нём нет start-agent.ps1" "обновите панель до версии со свежим агентом"
+        }
+        Report download ok "агент $Version скачан и проверен"
+
+        $params = @{ NodeName = $Node; PanelWs = $PanelWs; Unattended = $true }
+        if (-not (Test-Path $TokenFile)) {
+            # Токен выдаётся один раз на ссылку; прежний токен узла при этом заменяется
+            try { $token = (Invoke-RestMethod -Method Post -Uri $TokenUrl -TimeoutSec 15).token }
+            catch { return Fail token "панель не выдала токен (ссылка использована или устарела)" "выпустите новую команду установки в панели" }
+            if (-not $token) { return Fail token "ответ панели без токена" "выпустите новую команду установки в панели" }
+            [IO.File]::WriteAllText("$tmp\token", $token)
+            $params.TokenPath = "$tmp\token"
+            Report token ok "токен получен"
+        }
+
+        Report service running "установка службы (Python, задача планировщика)"
+        # В этом же процессе: exit в скрипте завершает только скрипт; политика — только для этого окна
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+        & "$tmp\agent\start-agent.ps1" @params
+        $code = $LASTEXITCODE
+        if ($code -eq 0) { Report done ok "агент подключён к панели" }
+        elseif ($code -eq 2) { Report done failed "служба запущена, но панель не подключилась: имя узла, токен или адрес панели" }
+        else { Report done failed "установщик завершился с кодом $code (текст ошибки — в окне PowerShell)" }
+    } finally {
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
+    }
+}

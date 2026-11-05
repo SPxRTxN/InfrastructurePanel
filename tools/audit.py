@@ -172,8 +172,9 @@ def check_db() -> None:
 # ---------- Статика ----------
 
 def vendor_hashes() -> dict[str, str]:
-    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(VENDOR.iterdir()) if p.is_file() and p.name != HASHES.name}
+    # Вложенные каталоги (fonts/) — с относительным путём, файлы в корне — по имени, как раньше
+    return {p.relative_to(VENDOR).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(VENDOR.rglob("*")) if p.is_file() and p != HASHES}
 
 
 def check_vendor() -> None:

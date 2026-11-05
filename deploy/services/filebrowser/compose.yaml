@@ -1,0 +1,32 @@
+# File Browser — файлы homelab в браузере. Работает сам по себе (свой порт и свой вход) и открывается из панели
+# (раздел «Сервисы» → «Открыть»). Заготовка: ставим вместе с владельцем по README.md рядом.
+#
+# Диски с важными данными здесь НЕ подключены и по умолчанию подключаться не должны.
+# Если владелец решит показать такой диск в File Browser — только на чтение (:ro), строкой ниже, вместе.
+name: homelab-filebrowser
+
+services:
+  filebrowser:
+    # Версия и digest закреплены (multi-arch: amd64, arm64, armv7); обновление — сменить оба значения
+    image: filebrowser/filebrowser:v2.63.23@sha256:a469ea076d4a1b4b1d86a41d130f2f536cd9da996a2b1fb39c0d7635f9d89b9a
+    container_name: homelab-filebrowser
+    restart: unless-stopped
+    user: "${FB_UID:-1000}:${FB_GID:-1000}"
+    ports:
+      # Отдельно от панели: http://<сервер>:8081. Только локальная сеть; наружу — через тот же HTTPS-прокси, что и панель
+      - "${FB_BIND:-0.0.0.0}:${FB_PORT:-8081}:80"
+    volumes:
+      - "${FB_FILES:?укажите FB_FILES в .env — каталог, который File Browser показывает}:/srv"
+      - ./data/database:/database
+      - ./data/config:/config
+      - ./branding:/branding:ro
+      # НЕ раскомментировать без владельца. Только :ro — File Browser не сможет ничего изменить на диске:
+      # - "<точка монтирования диска>:/srv/archive:ro"
+    # Корень контейнера — только чтение, без лишних прав: пишет он лишь в свои тома
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Свой Python для агента, отдельно от системы: готовая сборка CPython (python-build-standalone, её же ставит uv)
+# распаковывается в <каталог агента>/python. Системный python3, apt и чужие программы не затрагиваются; удаление
+# агента удаляет и этот Python. Запускает install.sh --own-python (root).
+#
+#   python-setup install <каталог агента>   скачать закреплённую версию, сверить SHA-256, поставить в <каталог>/python
+#   python-setup path <каталог агента>      путь к python3, если свой Python уже стоит (иначе пусто)
+#
+# Коды выхода: 0 — готово; 1 — ошибка (что сделать — в stderr); 2 — неверный аргумент.
+set -euo pipefail
+TMP_DIR=""
+
+# Версия и SHA-256 архивов «install_only» из файла SHA256SUMS релиза astral-sh/python-build-standalone.
+# Сверено владельцем 2026-11-04 (SHA256SUMS релиза 20261026). Пустая сумма = не закреплена: install откажется работать, пока владелец не впишет проверенное значение.
+PBS_TAG="20261026"
+PY_VERSION="3.12.16"
+PSUM_X86_64="6a79e922e50006b601f29e688407659da1c2b86ebcd4e9c7254cf234be8b89de"
+PSUM_AARCH64="a945427411dc6851a1393533b74a4a1ac434321ae397f2ec69897a9b4fde032b"
+PSUM_ARMV7="4cb40be706cb5416342cc179f334af63ac0b88215bb6ecc41cce4ba34e0ae62d"
+
+fail() { echo "ОШИБКА python-setup: $1" >&2; echo "Что сделать: $2" >&2; exit 1; }
+
+# uname -m → тройка платформы в имени архива; пусто — не поддерживается
+pbs_triple() {
+    case "$1" in
+        x86_64|amd64) echo x86_64-unknown-linux-gnu ;;
+        aarch64|arm64) echo aarch64-unknown-linux-gnu ;;
+        armv7l|armv7) echo armv7-unknown-linux-gnueabihf ;;
+        *) echo "" ;;
+    esac
+}
+
+pbs_sum() {
+    case "$1" in
+        x86_64-unknown-linux-gnu) echo "$PSUM_X86_64" ;;
+        aarch64-unknown-linux-gnu) echo "$PSUM_AARCH64" ;;
+        armv7-unknown-linux-gnueabihf) echo "$PSUM_ARMV7" ;;
+    esac
+}
+
+do_path() {
+    local py="$1/python/bin/python3"
+    if [ -x "$py" ]; then echo "$py"; fi
+}
+
+do_install() {
+    local root="$1" triple want name url tmp got
+    [ "$(id -u)" -eq 0 ] || fail "нужен root" "запускайте через sudo"
+    local manual="Вручную: скачайте cpython-<версия>+<тег>-<платформа>-install_only.tar.gz со страницы https://github.com/astral-sh/python-build-standalone/releases, сверьте SHA-256 с SHA256SUMS и распакуйте в $root (получится $root/python)"
+    for c in curl tar sha256sum; do
+        command -v "$c" >/dev/null || fail "нет команды $c" "установите её (apt install curl tar coreutils). $manual"
+    done
+    triple="$(pbs_triple "$(uname -m)")"
+    [ -n "$triple" ] || fail "архитектура $(uname -m) не поддерживается (нужна x86_64, aarch64 или armv7l)" "$manual"
+    want="$(pbs_sum "$triple")"
+    [ -n "$PBS_TAG" ] && [ -n "$PY_VERSION" ] && [ -n "$want" ] \
+        || fail "версия или SHA-256 Python не закреплены в python-setup" "впишите PBS_TAG, PY_VERSION и суммы из SHA256SUMS релиза. $manual"
+    name="cpython-$PY_VERSION+$PBS_TAG-$triple-install_only.tar.gz"
+    url="https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG/$name"
+    if [ -x "$root/python/bin/python3" ] && [ "$("$root/python/bin/python3" -c 'import platform; print(platform.python_version())' 2>/dev/null)" = "$PY_VERSION" ]; then
+        echo "Python $PY_VERSION уже стоит в $root/python"
+        return 0
+    fi
+    install -d -m 0755 -o root -g root "$root"
+    tmp="$(mktemp -d)"
+    TMP_DIR="$tmp"  # глобальная: trap EXIT срабатывает после выхода из функции, local tmp там уже пуст
+    trap 'rm -r -f -- "$TMP_DIR"' EXIT
+    curl -fsSL --retry 2 --connect-timeout 15 --max-time 600 -o "$tmp/$name" "$url" \
+        || fail "не удалось скачать $url (нет сети или GitHub недоступен)" "проверьте выход машины в интернет. $manual"
+    got="$(sha256sum "$tmp/$name")"
+    got="${got%% *}"
+    [ "$got" = "$want" ] \
+        || fail "контрольная сумма архива не совпала (ожидалась ${want:0:12}…, получена ${got:0:12}…)" "не используйте этот файл: возможна подмена или обрыв загрузки; повторите позже. $manual"
+    mkdir "$tmp/out"
+    tar -xzf "$tmp/$name" -C "$tmp/out" || fail "архив не распаковался" "$manual"
+    [ -x "$tmp/out/python/bin/python3" ] || fail "в архиве нет python/bin/python3" "$manual"
+    "$tmp/out/python/bin/python3" -c 'import venv, ensurepip, ssl, sqlite3' \
+        || fail "распакованный Python неполный (нет venv/ensurepip/ssl)" "$manual"
+    chown -R root:root "$tmp/out/python"
+    chmod -R go-w "$tmp/out/python"
+    # Замена целиком: прежняя версия уходит, только когда новая уже распакована и проверена
+    rm -r -f -- "$root/python.old"
+    [ ! -e "$root/python" ] || mv -T -- "$root/python" "$root/python.old"
+    mv -T -- "$tmp/out/python" "$root/python"
+    rm -r -f -- "$root/python.old"
+    echo "Python $PY_VERSION установлен в $root/python"
+}
+
+main() {
+    case "${1:-}" in
+        install) [ -n "${2:-}" ] || { echo "Использование: python-setup install <каталог агента>" >&2; exit 2; }; do_install "$2" ;;
+        path) [ -n "${2:-}" ] || exit 2; do_path "$2" ;;
+        *) echo "Использование: python-setup install|path <каталог агента>" >&2; exit 2 ;;
+    esac
+}
+
+# При source (тесты) только функции; при запуске — команда
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi

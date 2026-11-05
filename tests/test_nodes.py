@@ -93,9 +93,11 @@ def test_agent_session_feeds_node_and_server(admin, db):
                     break
                 time.sleep(0.05)
 
-            page = admin.get(f"/nodes/{node.id}").text
+            # Информация — на странице сервера; на странице узла только настройки и действия
+            page = admin.get(f"/servers/{server.id}").text
             assert "Онлайн" in page and "28.9 ГБ" in page and "nginx упал" in page
-            assert "Перезапустить nginx" in page
+            assert "nginx упал" not in admin.get(f"/nodes/{node.id}").text
+            assert "Перезапустить nginx" in admin.get(f"/nodes/{node.id}").text
 
             # Действие: панель шлёт только имя, агент отвечает результатом
             assert admin.post(f"/nodes/{node.id}/actions/rm_rf").status_code == 409

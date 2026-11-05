@@ -94,6 +94,11 @@ def parse(raw: str) -> dict | None:
 error_text = ssh_access.error_text
 
 
+def is_auth_error(exc: BaseException) -> bool:
+    """Сервер отказал во входе (неверный пароль/ключ) — браузер покажет окно логина и пароля."""
+    return exc.__class__.__name__ in ("PermissionDenied", "KeyImportError")
+
+
 async def open_shell(target: ssh_access.Target, cols: int, rows: int):
     """Подключение и интерактивный shell с PTY. Возвращает (conn, process, новый ключ хоста или None)."""
     import asyncssh

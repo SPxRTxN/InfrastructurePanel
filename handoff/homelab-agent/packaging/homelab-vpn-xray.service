@@ -1,0 +1,23 @@
+[Unit]
+Description=homelab-agent: VPN, движок Xray (локальный SOCKS 127.0.0.1:10808 для TUN sing-box; конфиг присылает панель)
+Documentation=file:///opt/homelab-agent/bin/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hl-xray
+# Конфиг пишет агент (каталог 0700), читает systemd и кладёт копию в закрытый каталог учётных данных (%d).
+LoadCredential=xray.json:/opt/homelab-agent/etc/vpn/xray.json
+ExecStart=/usr/local/bin/xray run -c %d/xray.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

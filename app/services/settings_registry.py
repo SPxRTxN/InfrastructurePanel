@@ -29,9 +29,11 @@ MODULES = [
     ("jira", "Jira"),
     ("confluence", "Confluence"),
     ("calendar", "Календарь"),
+    ("services", "Сервисы"),
 ]
 
 ACCENTS = [
+    ("indigo", "Индиго"),
     ("pink", "Розовый"),
     ("violet", "Фиолетовый"),
     ("blue", "Синий"),
@@ -65,7 +67,7 @@ class SettingDef:
 SETTINGS: list[SettingDef] = [
     SettingDef("appearance.theme", "choice", "dark", "appearance", "user", "Тема",
                [("dark", "Тёмная"), ("light", "Светлая")]),
-    SettingDef("appearance.accent", "choice", "pink", "appearance", "user", "Акцентный цвет", ACCENTS),
+    SettingDef("appearance.accent", "choice", "indigo", "appearance", "user", "Акцентный цвет", ACCENTS),
     SettingDef("appearance.density", "choice", "comfortable", "appearance", "user", "Плотность",
                [("comfortable", "Обычная"), ("compact", "Компактная")]),
     SettingDef("appearance.sidebar_collapsed", "bool", False, "appearance", "user", "Свёрнутый сайдбар"),
@@ -147,14 +149,78 @@ def _row(db: Session, key: str, user_id: int | None) -> SettingValue | None:
     return db.scalar(select(SettingValue).where(SettingValue.key == key, cond))
 
 
+def sanitize(sdef: SettingDef, value: Any) -> tuple[Any, bool]:
+    """Сохранённое значение, приведённое к нынешнему реестру: (значение, годно_ли_как_есть).
+    Пропавший вариант выбора, число вне границ, чужой тип → default; из списка выпадают пропавшие пункты."""
+    t = sdef.type
+    if t == "bool":
+        ok = isinstance(value, bool)
+    elif t == "int":
+        ok = (isinstance(value, int) and not isinstance(value, bool)
+              and (sdef.min is None or value >= sdef.min) and (sdef.max is None or value <= sdef.max))
+    elif t == "choice":
+        ok = isinstance(value, str) and value in {c for c, _ in sdef.choices}
+    elif t == "list":
+        if not isinstance(value, list):
+            return sdef.default, False
+        clean = coerce(sdef, [x for x in value if isinstance(x, str)])
+        return clean, clean == value
+    else:
+        ok = isinstance(value, str)
+    return (value, True) if ok else (sdef.default, False)
+
+
+def _load(sdef: SettingDef, row: SettingValue) -> Any:
+    try:
+        return sanitize(sdef, json.loads(row.value))[0]
+    except ValueError:  # битый JSON
+        return sdef.default
+
+
 def get_setting(db: Session, key: str, user_id: int | None = None) -> Any:
     sdef = REGISTRY[key]
     if sdef.scope == "user" and user_id is not None:
         row = _row(db, key, user_id)
         if row:
-            return json.loads(row.value)
+            return _load(sdef, row)
     row = _row(db, key, None)
-    return json.loads(row.value) if row else sdef.default
+    return _load(sdef, row) if row else sdef.default
+
+
+def stale_rows(db: Session) -> list[tuple[SettingValue, str]]:
+    """Записи настроек, не подходящие к нынешнему реестру: (запись, причина). Значения не возвращаются наружу."""
+    found = []
+    for row in db.scalars(select(SettingValue).order_by(SettingValue.key, SettingValue.id)).all():
+        sdef = REGISTRY.get(row.key)
+        if sdef is None:
+            found.append((row, "нет в реестре"))
+        elif row.user_id is not None and sdef.scope != "user":
+            found.append((row, "личное значение глобальной настройки"))
+        else:
+            try:
+                ok = sanitize(sdef, json.loads(row.value))[1]
+            except ValueError:
+                ok = False
+            if not ok:
+                found.append((row, "значение устарело или не того типа"))
+    return found
+
+
+def prune_stale(db: Session) -> int:
+    """Удаляет неизвестные записи и личные значения глобальных; устаревшие — приводит (список) или сбрасывает к default."""
+    rows = stale_rows(db)
+    for row, reason in rows:
+        sdef = REGISTRY.get(row.key)
+        if reason == "значение устарело или не того типа" and sdef.type == "list":
+            try:
+                clean, _ = sanitize(sdef, json.loads(row.value))
+                row.value = json.dumps(clean)
+                continue
+            except ValueError:
+                pass
+        db.delete(row)
+    db.commit()
+    return len(rows)
 
 
 def set_setting(db: Session, key: str, value: Any, user_id: int | None = None) -> None:

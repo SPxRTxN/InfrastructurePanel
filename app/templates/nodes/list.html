@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, csrf with context %}
+{% from "_macros.html" import icon, csrf, add_tile with context %}
 {% block content %}
 {% include "_infra_tabs.html" %}
 {% if flash %}<div class="alert alert-ok">{{ icon("circle-check") }} {{ flash }}</div>{% endif %}
@@ -31,10 +31,11 @@
   {% else %}
   <section class="card"><p class="muted">Узлов пока нет. Добавьте узел — панель выдаст токен для агента <code>homelab-agent</code>.</p></section>
   {% endfor %}
+  {% if user.can("servers.edit") %}{{ add_tile("new-node-dialog", "Добавить новый узел") }}{% endif %}
 </div>
 
 {% if user.can("servers.edit") %}
-<section class="card">
+<dialog id="new-node-dialog" class="dialog dialog-wide">
   <h3>Новый узел</h3>
   <form method="post" action="/nodes" class="form form-grid">
     {{ csrf() }}
@@ -47,8 +48,9 @@
     <label class="check"><input type="checkbox" name="use_agent" checked> Брать RAM и диски выбранного сервера с агента</label>
     {% if user.can("topology.edit") %}<label class="check"><input type="checkbox" name="on_map" checked> Новый сервер — на топологию</label>{% endif %}
     <div><button class="btn btn-primary">{{ icon("plus") }} Добавить и получить токен</button></div>
+    <div class="row"><button type="button" class="btn" data-dialog-close>Закрыть</button></div>
   </form>
-</section>
+</dialog>
 {% endif %}
 {% endblock %}
 {% block scripts %}

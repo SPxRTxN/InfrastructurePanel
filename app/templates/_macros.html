@@ -6,6 +6,13 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 {%- endmacro %}
 
+{# Плитка «добавить» — последняя в сетке карточек; открывает <dialog> (id) на этой же странице (app.js, data-dialog-open) #}
+{% macro add_tile(dlg_id, label) -%}
+<button type="button" class="card server-card add-tile" data-dialog-open="{{ dlg_id }}">
+  {{ icon("plus") }}<span>{{ label }}</span>
+</button>
+{%- endmacro %}
+
 {% macro flash(error="", ok="") -%}
 {% if error %}<div class="alert alert-error">{{ icon("triangle-alert") }} {{ error }}</div>{% endif %}
 {% if ok %}<div class="alert alert-ok">{{ icon("circle-check") }} {{ ok }}</div>{% endif %}

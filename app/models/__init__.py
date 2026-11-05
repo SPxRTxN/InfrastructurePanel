@@ -1,5 +1,6 @@
 """Импорт всех моделей, чтобы Base.metadata (и Alembic) видели все таблицы."""
 from app.models.agent_releases import AgentRelease, NodeUpdate  # noqa: F401
+from app.models.agent_install import AgentInstall  # noqa: F401
 from app.models.alerts import AlertLog, AlertRule, AlertState  # noqa: F401
 from app.models.archive import Archive, SecurityEvent  # noqa: F401
 from app.models.auth import Group, GroupPermission, LoginAttempt, User, UserSession, user_groups  # noqa: F401

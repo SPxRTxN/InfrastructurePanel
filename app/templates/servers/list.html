@@ -1,16 +1,17 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, csrf with context %}
+{% from "_macros.html" import icon, csrf, add_tile with context %}
 {% block content %}
 {% include "_infra_tabs.html" %}
 <div class="grid-cards">
   {% for s in servers %}
     {% include "servers/_card.html" %}
   {% else %}
-    <div class="card empty-state"><p class="muted">Серверов нет.{% if user.can("servers.edit") %} Добавьте ниже или создайте <a href="/nodes">узел</a> с агентом.{% endif %}</p></div>
+    <div class="card empty-state"><p class="muted">Серверов нет.{% if user.can("servers.edit") %} Добавьте плиткой или создайте <a href="/nodes">узел</a> с агентом.{% endif %}</p></div>
   {% endfor %}
+  {% if user.can("servers.edit") %}{{ add_tile("new-server-dialog", "Добавить новый сервер") }}{% endif %}
 </div>
 {% if user.can("servers.edit") %}
-<section class="card">
+<dialog id="new-server-dialog" class="dialog dialog-wide">
   <h3>Новый сервер</h3>
   <form method="post" action="/servers" class="form form-grid">
     {{ csrf() }}
@@ -29,10 +30,21 @@
     <label>Подключён к<select name="uplink_id"><option value="">— не связывать —</option>
       {% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
     {% endif %}
+    {% if user.can("servers.console") %}
+    <fieldset class="form-grid span-all">
+      <legend><label class="check"><input type="checkbox" name="install_agent" checked> Установить агента по SSH</label></legend>
+      <label>Пароль SSH<input name="ssh_password" type="password" maxlength="256" autocomplete="new-password" placeholder="пусто — по ключу"></label>
+      <label>Пароль sudo<input name="sudo_password" type="password" maxlength="256" autocomplete="new-password" placeholder="пусто — как у SSH"></label>
+      {% if user.can("settings.manage") %}<label class="check"><input type="checkbox" name="vpn"> Разрешить VPN</label>{% endif %}
+      <label class="check"><input type="checkbox" name="own_python"> Свой Python</label>
+    </fieldset>
+    {% endif %}
     <div><button class="btn btn-primary">{{ icon("plus") }} Добавить</button></div>
+    <div class="row"><button type="button" class="btn" data-dialog-close>Закрыть</button></div>
   </form>
-  <p class="muted">Остальное (вход по SSH, сервисы, удаление) — в «Настройках узла» на странице сервера. Для ssh ключ хоста запоминается при первом подключении.</p>
-</section>
+  <small class="field-note">Агент ставится по SSH сразу после добавления (пользователь, порт и ключ — поля выше); пароли не сохраняются,
+    ход установки — на открывшейся странице узла. Без галочки агента можно поставить позже: «Настройки узла» → «VPN» → «Настройки».</small>
+</dialog>
 {% endif %}
 {% endblock %}
 {% block scripts %}

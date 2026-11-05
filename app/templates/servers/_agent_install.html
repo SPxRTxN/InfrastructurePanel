@@ -1,0 +1,103 @@
+{# Подраздел «Настройки» (бывший «Агент») плитки «VPN». Установка агента — «Настройки узла». Подключается include из _settings.html (без контекста agent — это загрузчик),
+   сам блок отдаёт GET /servers/{id}/agent-install. Контекст блока: agent (словарь), srv. Код установки показывается
+   один раз (command) — потом в панели его нет, остаётся только ход установки. Весь вывод — экранированный. #}
+{% from "_macros.html" import icon %}
+
+{% macro progress(a) %}
+<div id="agent-progress" {% if a.install and a.install.active %}hx-get="/servers/{{ srv.id }}/agent-install/progress" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if a.install %}
+    {% set i = a.install %}
+    <p>{{ "Установка по SSH" if i.method == "ssh" else "Установка командой" }}:
+      {% if i.status == "ok" %}<span class="status ok">завершена</span>
+      {% elif i.status == "failed" %}<span class="status bad">не удалась</span>
+      {% elif i.expired %}<b class="muted">код истёк</b>
+      {% elif i.status == "running" %}<b>идёт…</b>
+      {% else %}<b>ждём запуска команды…</b>{% endif %}
+      {% if i.vpn %}<span class="muted small">· с VPN</span>{% endif %}</p>
+    {% if i.steps %}
+    {% set pr = i.progress %}{% set c = pr.current %}
+    <div class="install-progress">
+      <div class="install-progress-line">
+        {% if i.status == "ok" %}{{ icon("circle-check") }}{% elif c.status == "failed" %}{{ icon("circle-x") }}{% elif c.status == "warn" %}{{ icon("triangle-alert") }}{% else %}{{ icon("clock") }}{% endif %}
+        <span class="muted small">{% if i.status == "ok" %}Готово{% else %}Шаг {{ pr.number }} из {{ pr.total }}{% endif %}</span>
+        <code>{{ c.step }}</code> <span class="install-progress-msg">{{ c.message }}</span>
+        <b class="install-progress-pct">{{ pr.percent }}%</b>
+      </div>
+      <meter class="bar{% if i.status == 'failed' %} bar-failed{% endif %}" min="0" max="{{ pr.total }}" optimum="{{ pr.total }}" value="{{ pr.done }}"></meter>
+    </div>
+    <details><summary>Все шаги</summary>
+    <ul class="list-plain">
+      {% for s in i.steps %}
+      <li>{% if s.status == "ok" %}{{ icon("circle-check") }}{% elif s.status == "failed" %}{{ icon("circle-x") }}{% elif s.status == "warn" %}{{ icon("triangle-alert") }}{% else %}{{ icon("clock") }}{% endif %}
+        <code>{{ s.step }}</code> {{ s.message }}</li>
+      {% endfor %}
+    </ul>
+    </details>
+    {% endif %}
+    {% if i.status == "failed" %}
+    <div class="alert alert-error">{{ icon("triangle-alert") }}
+      <div>
+        <b>Ошибка{% if i.failed %} на шаге «{{ i.failed.step }}»: {{ i.failed.message }}{% endif %}</b><br>
+        Что сделать: {{ i.hint }}<br>
+        Установка вручную: <a href="/nodes">Узлы</a>, раздел «Установка вручную» в руководстве («Узлы и агенты»).
+      </div>
+    </div>
+    {% endif %}
+    {% if i.log %}<details><summary>Журнал установки</summary><pre><code>{{ i.log }}</code></pre></details>{% endif %}
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% if part == "progress" %}
+  {{ progress(agent) }}
+{% elif agent %}
+{# Раскрыт, если сейчас показываем команду или идёт установка (после htmx-замены свёрнутый блок скрыл бы результат) #}
+<details class="sub-item" id="agent"{% if agent.command or (agent.install and agent.install.active) %} open{% endif %}>
+  <summary>Настройки</summary>
+  <p>
+    {% if agent.node %}
+      Узел <b>{{ agent.node.name }}</b>:
+      {% if agent.online %}<span class="status ok">на связи</span>{% else %}<span class="muted">нет связи</span>{% endif %}
+      {% if agent.node.version %}· версия агента {{ agent.node.version }}{% endif %}
+    {% else %}
+      <span class="muted">Агент не установлен: при первой установке панель создаст узел с именем сервера.</span>
+    {% endif %}
+  </p>
+
+  {# Одна форма и одна галочка: обе кнопки берут её значение; кнопка «командой» шлёт только vpn (пароль sudo ей не нужен) #}
+  <form hx-target="#agent" hx-swap="outerHTML" class="form form-grid">
+    {% if agent.can_ssh %}
+    <label>Вход для SSH<select name="cred">
+      <option value="">из настроек сервера{{ " (" ~ srv.ssh_user ~ ")" if srv.ssh_user }}</option>
+      {% for c in agent.creds %}<option value="{{ c.id }}">{{ c.label }} — {{ c.address }}</option>{% endfor %}
+    </select></label>
+    <label>Пароль sudo
+      <input name="sudo_password" type="password" maxlength="256" autocomplete="new-password" placeholder="пусто — как у входа"></label>
+    {% endif %}
+    {% if agent.can_vpn %}<label class="check"><input type="checkbox" name="vpn"> Разрешить VPN</label>{% endif %}
+    <label class="check" title="Готовая сборка CPython в /opt/homelab-agent/python: системный Python и пакеты не трогаются"><input type="checkbox" name="own_python"> Свой Python</label>
+    <div class="row">
+      <button type="button" class="btn btn-primary btn-sm" hx-post="/servers/{{ srv.id }}/agent-install" hx-params="vpn,own_python">{{ icon("terminal") }} Получить команду установки</button>
+      {% if agent.can_ssh %}<button type="button" class="btn btn-sm" hx-post="/servers/{{ srv.id }}/agent-install/ssh">{{ icon("key-round") }} Установить по SSH</button>{% endif %}
+    </div>
+  </form>
+  {% if agent.command %}
+  <p class="muted small">Выполните на машине — одну из команд. Ссылка одноразовая, действует 30 минут и больше не покажется:</p>
+  <p class="small"><b>Linux</b> (терминал, нужен root):</p>
+  <pre><code>{{ agent.command }}</code></pre>
+  {% if agent.command_win %}<p class="small"><b>Windows</b> (PowerShell от имени администратора; VPN на Windows нет):</p>
+  <pre><code>{{ agent.command_win }}</code></pre>{% endif %}
+  {% endif %}
+  <small class="field-note">{% if agent.can_ssh %}Пароль sudo не сохраняется. {% endif %}Машина должна открывать адрес панели.
+    «Свой Python» — отдельная копия только для агента в /opt/homelab-agent/python, системный Python не меняется.</small>
+
+  {{ progress(agent) }}
+</details>
+{# Краткая сводка свёрнутой плитки «VPN» (_settings.html): обновляется из фрагмента (OOB) #}
+<span id="sum-agent" hx-swap-oob="true">{% if not agent.node %}агент не установлен{% elif agent.online %}агент{% if agent.node.version %} {{ agent.node.version }}{% endif %}{% else %}агент: нет связи{% endif %}</span>
+{% else %}
+<details class="sub-item" id="agent" hx-get="/servers/{{ srv.id }}/agent-install" hx-trigger="load" hx-swap="outerHTML">
+  <summary>Настройки</summary>
+  <p class="muted">Загрузка…</p>
+</details>
+{% endif %}
