@@ -20,7 +20,8 @@ PANELS = ["ws://192.168.1.39:8000/agent/ws", "wss://dash.example/agent/ws"]
 
 
 def fake_resolve(host):
-    return {"192.168.1.39": ["192.168.1.39"], "dash.example": ["203.0.113.50", "2001:db8::1"]}.get(host, [])
+    return {"192.168.1.39": ["192.168.1.39"], "dash.example": ["203.0.113.50", "2001:db8::1"],
+            "vpn.example.org": ["192.0.2.10"]}.get(host, [])
 
 
 def test_prepare_adds_panels_to_bypass():
@@ -59,19 +60,22 @@ def _script(tmp_path, name, code):
     return str(p)
 
 
-def _manager(tmp_path, *, check_code=0, apply_code=0, panel=True, net=True):
+def _manager(tmp_path, *, check_code=0, apply_code=0, panel=True, net=True, tunnel=True):
     cfg = VpnConfig(enabled=True, singbox=_script(tmp_path, "sing-box", f"sys.exit({check_code})"),
                     config_dir=str(tmp_path / "vpn"),
                     apply_argv=[_script(tmp_path, "apply", f"open(r'{tmp_path}/applied','a').write('x'); sys.exit({apply_code})")],
                     stop_argv=[_script(tmp_path, "stop", f"open(r'{tmp_path}/stopped','w').write('x')")],
                     rollback_seconds=10)
-    return VpnManager(cfg, PANELS, resolve=fake_resolve, panel_ok=lambda: panel, internet_ok=lambda: net, poll=0.05)
+    m = VpnManager(cfg, PANELS, resolve=fake_resolve, panel_ok=lambda: panel, internet_ok=lambda: net, tunnel_up=lambda iface: tunnel, poll=0.05)
+    m.ifaces = lambda: [{"name": "hl-vpn"}]
+    return m
 
 
 def test_apply_ok_writes_private_config(tmp_path):
     m = _manager(tmp_path)
     res = asyncio.run(m.handle({"type": "vpn", "id": "v-1", "mode": "all", "config": CONFIG}))
-    assert res == {"type": "vpn_result", "id": "v-1", "ok": True, "detail": "туннель поднят: панель и интернет доступны"}
+    assert res == {"type": "vpn_result", "id": "v-1", "ok": True, "detail": "туннель поднят: панель и интернет доступны", "engine": "sing-box",
+                   "interfaces": [{"name": "hl-vpn"}]}
     assert stat.S_IMODE(os.stat(m.path).st_mode) == 0o600
     assert "192.168.1.39/32" in json.load(open(m.path))["inbounds"][0]["route_exclude_address"]
 
@@ -97,6 +101,21 @@ def test_rollback_to_previous_when_no_connectivity(tmp_path):
     assert res["ok"] is False and "откат выполнен" in res["detail"]
     assert open(good.path).read() == before  # вернулся прежний конфиг
     assert not os.path.exists(good.path + ".prev")
+
+
+def test_dead_singbox_is_not_success(tmp_path):
+    """Упавший sing-box: панель и интернет доступны мимо туннеля — всё равно откат, причина в ответе."""
+    m = _manager(tmp_path, tunnel=False)
+    res = asyncio.run(_fast(m, {"id": "v-1", "mode": "all", "config": CONFIG}))
+    assert res["ok"] is False and "sing-box не работает" in res["detail"] and "откат выполнен" in res["detail"]
+    assert not os.path.exists(m.path) and os.path.exists(tmp_path / "stopped")
+
+
+def test_tunnel_up_needs_interface(monkeypatch):
+    from homelab_agent import vpn as v
+    monkeypatch.setattr(v.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0})())
+    assert v._tunnel_up("hl-vpn-test-absent") is False
+    assert v._tunnel_up("") is True
 
 
 def test_rollback_first_time_stops_service(tmp_path):

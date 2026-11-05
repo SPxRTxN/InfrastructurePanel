@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# Помощник root для VPN узла: ставит sing-box. Лежит в /opt/homelab-agent/bin (root:root 0755),
+# агент вызывает его через `sudo -n` (строка в sudoers ставит install.sh --vpn). Аргументов от панели нет.
+#
+#   vpn-setup install   скачать sing-box 1.14.4 с GitHub, сверить SHA-256, поставить в /usr/local/bin и юнит systemd
+#   vpn-setup install-xray  скачать Xray-core с GitHub, сверить закреплённый SHA-256, поставить /usr/local/bin/xray
+#                           и юнит homelab-vpn-xray.service (второй движок: запасной, если sing-box не поднялся)
+#   vpn-setup status    версия установленного sing-box или пустая строка
+#
+# Коды выхода: 0 — готово; 1 — ошибка (текст «что сделать вручную» в stderr); 2 — неверный аргумент.
+set -euo pipefail
+TMP_DIR=""
+
+VERSION="1.14.4"
+BIN_TARGET=/usr/local/bin/sing-box
+UNIT_SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYSD_DIR="$(dirname "$UNIT_SRC_DIR")/systemd"
+UNIT_DIR=/etc/systemd/system
+
+# Xray-core v26.10.31: SHA-256 архивов из файлов .dgst релиза XTLS/Xray-core (сверены владельцем 2026-11-04).
+# Пустая сумма = не закреплена: install-xray откажется работать, пока владелец не впишет проверенное значение.
+XRAY_VERSION="v26.10.31"
+XRAY_TARGET=/usr/local/bin/xray
+XSUM_AMD64="e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214"
+XSUM_ARM64="1811c8f1da0c3b6dc707ebaf1c8390e987ba39859a8f0a7aadd8526157f2ec8d"
+XSUM_ARMV7="2387f55239ee7799fd67d5382e79f589c1da07a97d993e86b058f2290b8e456b"
+
+# SHA-256 архивов (сверены с digest релиза SagerNet/sing-box на GitHub)
+SUM_AMD64=699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968
+SUM_ARM64=436441f76ee2f7fe21b5b2d426d3cb261a480455a704865789ad533e4273ec26
+SUM_ARMV7=fd164ed45ebc784f657a3e1d0e0ad0f68afdcff864ee57122c2cfed3ddb80a00
+
+MANUAL="Вручную: скачайте sing-box-$VERSION-linux-<arch>.tar.gz со страницы https://github.com/SagerNet/sing-box/releases/tag/v$VERSION, положите бинарник sing-box в $BIN_TARGET (chmod 0755, владелец root) и выполните: sudo systemctl daemon-reload"
+
+fail() { echo "ОШИБКА vpn-setup: $1" >&2; echo "Что сделать: $2" >&2; exit 1; }
+
+# uname -m → имя архитектуры в имени архива; пусто — не поддерживается
+map_arch() {
+    case "$1" in
+        x86_64|amd64) echo amd64 ;;
+        aarch64|arm64) echo arm64 ;;
+        armv7l|armv7) echo armv7 ;;
+        *) echo "" ;;
+    esac
+}
+
+expected_sum() {
+    case "$1" in
+        amd64) echo "$SUM_AMD64" ;;
+        arm64) echo "$SUM_ARM64" ;;
+        armv7) echo "$SUM_ARMV7" ;;
+        *) echo "" ;;
+    esac
+}
+
+xray_sum() {
+    case "$1" in
+        amd64) echo "$XSUM_AMD64" ;;
+        arm64) echo "$XSUM_ARM64" ;;
+        armv7) echo "$XSUM_ARMV7" ;;
+        *) echo "" ;;
+    esac
+}
+
+# имя архива Xray по нашему имени архитектуры
+xray_asset() {
+    case "$1" in
+        amd64) echo "Xray-linux-64.zip" ;;
+        arm64) echo "Xray-linux-arm64-v8a.zip" ;;
+        armv7) echo "Xray-linux-arm32-v7a.zip" ;;
+        *) echo "" ;;
+    esac
+}
+
+# Скачать архив в $2 и сверить сумму; печатает путь к файлу. Ошибка — через fail
+fetch_archive() {
+    local arch="$1" dir="$2" name url file want got
+    name="sing-box-$VERSION-linux-$arch.tar.gz"
+    url="https://github.com/SagerNet/sing-box/releases/download/v$VERSION/$name"
+    file="$dir/$name"
+    want="$(expected_sum "$arch")"
+    curl -fsSL --retry 2 --connect-timeout 15 --max-time 240 -o "$file" "$url" \
+        || fail "не удалось скачать $url (нет сети или GitHub недоступен)" "проверьте выход узла в интернет (curl -I https://github.com). $MANUAL"
+    got="$(sha256sum "$file")"
+    got="${got%% *}"
+    [ "$got" = "$want" ] \
+        || fail "контрольная сумма архива не совпала (ожидалась ${want:0:12}…, получена ${got:0:12}…)" "не используйте этот файл: возможна подмена или обрыв загрузки; повторите позже. $MANUAL"
+    echo "$file"
+}
+
+do_install() {
+    [ "$(id -u)" -eq 0 ] || fail "нужен root" "запускайте через sudo: sudo $0 install"
+    local m arch tmp archive
+    for c in curl tar sha256sum install; do
+        command -v "$c" >/dev/null || fail "нет команды $c" "установите её (apt install curl tar coreutils). $MANUAL"
+    done
+    m="$(uname -m)"
+    arch="$(map_arch "$m")"
+    [ -n "$arch" ] || fail "архитектура $m не поддерживается (нужна x86_64, aarch64 или armv7l)" "$MANUAL"
+    tmp="$(mktemp -d)"
+    TMP_DIR="$tmp"  # глобальная: trap EXIT срабатывает после выхода из функции, local tmp там уже пуст
+    trap 'rm -r -f -- "$TMP_DIR"' EXIT
+    archive="$(fetch_archive "$arch" "$tmp")"
+    # Из архива берём только бинарник, остальное (лицензия, юниты из архива) не трогаем
+    tar -xzf "$archive" -C "$tmp" --strip-components=1 "sing-box-$VERSION-linux-$arch/sing-box" \
+        || fail "не удалось распаковать sing-box из архива" "$MANUAL"
+    install -m 0755 -o root -g root "$tmp/sing-box" "$BIN_TARGET" \
+        || fail "не удалось записать $BIN_TARGET" "проверьте место на диске и права. $MANUAL"
+    if [ -f "$SYSD_DIR/homelab-vpn.service" ]; then
+        ln -sfn "$SYSD_DIR/homelab-vpn.service" "$UNIT_DIR/homelab-vpn.service.new"
+        mv -T -- "$UNIT_DIR/homelab-vpn.service.new" "$UNIT_DIR/homelab-vpn.service"
+        systemctl daemon-reload \
+            || fail "systemctl daemon-reload не выполнился" "выполните sudo systemctl daemon-reload вручную"
+    fi
+    echo "sing-box $VERSION установлен в $BIN_TARGET"
+}
+
+do_install_xray() {
+    [ "$(id -u)" -eq 0 ] || fail "нужен root" "запускайте через sudo: sudo $0 install-xray"
+    local m arch tmp name url want got
+    local manual="Вручную: скачайте архив Xray-core со страницы https://github.com/XTLS/Xray-core/releases, сверьте SHA-256 с файлом .dgst, положите бинарник xray в $XRAY_TARGET (chmod 0755, владелец root) и выполните: sudo systemctl daemon-reload"
+    for c in curl unzip sha256sum install; do
+        command -v "$c" >/dev/null || fail "нет команды $c" "установите её (apt install curl unzip coreutils). $manual"
+    done
+    m="$(uname -m)"
+    arch="$(map_arch "$m")"
+    [ -n "$arch" ] || fail "архитектура $m не поддерживается (нужна x86_64, aarch64 или armv7l)" "$manual"
+    want="$(xray_sum "$arch")"
+    [ -n "$XRAY_VERSION" ] && [ -n "$want" ] \
+        || fail "версия или SHA-256 Xray не закреплены в vpn-setup" "обновите агента до сборки с закреплённой версией Xray. $manual"
+    name="$(xray_asset "$arch")"
+    url="https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$name"
+    tmp="$(mktemp -d)"
+    TMP_DIR="$tmp"  # глобальная: trap EXIT срабатывает после выхода из функции, local tmp там уже пуст
+    trap 'rm -r -f -- "$TMP_DIR"' EXIT
+    curl -fsSL --retry 2 --connect-timeout 15 --max-time 240 -o "$tmp/$name" "$url" \
+        || fail "не удалось скачать $url (нет сети или GitHub недоступен)" "проверьте выход узла в интернет. $manual"
+    got="$(sha256sum "$tmp/$name")"
+    got="${got%% *}"
+    [ "$got" = "$want" ] \
+        || fail "контрольная сумма архива не совпала (ожидалась ${want:0:12}…, получена ${got:0:12}…)" "не используйте этот файл: возможна подмена или обрыв загрузки; повторите позже. $manual"
+    unzip -q -o -j "$tmp/$name" xray -d "$tmp/out" \
+        || fail "не удалось распаковать xray из архива" "$manual"
+    install -m 0755 -o root -g root "$tmp/out/xray" "$XRAY_TARGET" \
+        || fail "не удалось записать $XRAY_TARGET" "проверьте место на диске и права. $manual"
+    if [ -f "$SYSD_DIR/homelab-vpn-xray.service" ]; then
+        ln -sfn "$SYSD_DIR/homelab-vpn-xray.service" "$UNIT_DIR/homelab-vpn-xray.service.new"
+        mv -T -- "$UNIT_DIR/homelab-vpn-xray.service.new" "$UNIT_DIR/homelab-vpn-xray.service"
+        systemctl daemon-reload \
+            || fail "systemctl daemon-reload не выполнился" "выполните sudo systemctl daemon-reload вручную"
+    fi
+    echo "Xray $XRAY_VERSION установлен в $XRAY_TARGET"
+}
+
+do_status() {
+    [ -x "$BIN_TARGET" ] || { echo ""; return 0; }
+    local out
+    out="$("$BIN_TARGET" version 2>/dev/null | head -n 1 || true)"
+    out="${out#sing-box version }"
+    echo "${out%% *}"
+}
+
+main() {
+    case "${1:-}" in
+        install) do_install ;;
+        install-xray) do_install_xray ;;
+        status) do_status ;;
+        *) echo "Использование: vpn-setup install|install-xray|status" >&2; exit 2 ;;
+    esac
+}
+
+# При source (тесты) только функции; при запуске — команда
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi

@@ -57,3 +57,12 @@ def test_push_agent_copies_only_install_files(tmp_path):
     assert not (got / "tests").exists() and not (got / "Obsidian").exists() and not (got / "push-agent").exists()
     assert not list(got.rglob("__pycache__"))
     assert "./start-agent" in r.stdout
+
+
+def test_token_written_via_rename_not_overwrite():
+    """etc/ — sticky-каталог; при fs.protected_regular=2 root не может перезаписать token-main агента напрямую."""
+    import re
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "start-agent").read_text(encoding="utf-8")
+    assert not re.search(r'>\s*"\$ETC/token-main"', text)
+    assert 'mv -f "$ETC/.token-main.new" "$ETC/token-main"' in text

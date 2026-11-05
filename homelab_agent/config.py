@@ -63,7 +63,7 @@ class AgentConfig:
     wol: dict = field(default_factory=dict)
     update: dict = field(default_factory=dict)
     remote: dict = field(default_factory=lambda: {"config": True, "uninstall": True})
-    terminal: dict = field(default_factory=dict)  # туннель к локальному sshd, только локально (не из панели)
+    terminal: dict = field(default_factory=dict)  # туннель к локальному sshd; панель меняет всё, кроме target
     path: str | None = None
 
 
@@ -203,7 +203,8 @@ def check_config(cfg: AgentConfig) -> list[str]:
         from .vpn import parse_vpn
 
         vpn_cfg = parse_vpn(cfg.vpn)
-        if vpn_cfg.enabled and not os.path.exists(vpn_cfg.singbox):
+        # нет sing-box, но есть помощник — агент поставит его сам при первом конфиге от панели
+        if vpn_cfg.enabled and not os.path.exists(vpn_cfg.singbox) and not os.path.exists(vpn_cfg.setup):
             problems.append(f"[vpn]: не найден sing-box ({vpn_cfg.singbox}) — установите или укажите singbox = \"…\"")
     except ValueError as exc:
         problems.append(str(exc))

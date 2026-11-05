@@ -209,7 +209,7 @@ def test_hello_features_and_local_only():
     on = Agent(parse_config({"node": "pi", "terminal": {"enabled": True, "max_sessions": 3}}), collectors=[])
     msg = on.hello("t")
     assert "tunnel" in msg["features"] and msg["tunnel_max"] == 3
-    assert "terminal" in LOCAL_ONLY and "terminal" not in MANAGED
+    assert "terminal" in MANAGED and "terminal.target" in LOCAL_ONLY
 
 
 def test_disabled_agent_answers_tunnel_open():

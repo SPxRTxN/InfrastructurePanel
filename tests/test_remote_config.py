@@ -73,7 +73,7 @@ def test_panel_toml_overrides_managed_only(etc):
     assert cfg.interval == 5
     assert set(cfg.collectors) == {"memory", "command"}
     assert cfg.collectors["command"]["items"][0]["name"] == "x"  # command — только из agent.toml
-    assert cfg.update == {"enabled": False}  # restart_argv из панели отброшен
+    assert cfg.update["enabled"] is False and "evil" not in str(cfg.update)  # restart_argv из панели отброшен, свой — остался
     assert set(cfg.actions) == {"restart_nginx"}  # actions из panel.toml игнорируются
 
 
@@ -187,8 +187,8 @@ def test_features_and_layout(etc, tmp_path):
 def test_config_get(etc):
     out = handle(make_agent(etc), {"type": "config_get", "id": "c-1"})[0]
     assert out["type"] == "config" and out["id"] == "c-1"
-    assert out["managed"] == ["interval", "collectors", "display", "wol", "update"]
-    assert out["local_only"] == ["panel", "actions", "vpn", "terminal", "collectors.command"]
+    assert out["managed"] == ["interval", "collectors", "display", "wol", "update", "terminal"]
+    assert out["local_only"] == ["panel", "actions", "vpn", "collectors.command", "terminal.target"]
     assert set(out["sections"]) == set(out["managed"])
     assert "command" not in out["sections"]["collectors"] and "restart_argv" not in out["sections"]["update"]
     assert "token" not in str(out)
@@ -306,7 +306,10 @@ def test_install_single_sudoers_file_with_visudo():
     assert INSTALL.index('visudo -cf "$tmp_sudoers"') < INSTALL.index('install -m 0440 -o root -g root "$tmp_sudoers" "$SUDOERS"')
     rules = [ln for ln in INSTALL.splitlines() if "NOPASSWD:" in ln and ln.lstrip().startswith("echo")]
     active = [r for r in rules if "echo \"#" not in r]
-    assert len(active) == 2
+    # две безусловные строки + шесть VPN-строк, которые идут только в ветке --vpn (с отступом глубже)
+    base = [r for r in active if r.startswith("        echo")]
+    assert len(base) == 2
+    assert len(active) - len(base) == 6 and all("vpn" in r for r in active if r not in base)
     assert any("restart homelab-agent.service" in r for r in active)
     assert any('$BIN/uninstall-agent --from-panel' in r for r in active)
     assert "NOPASSWD: ALL" not in INSTALL
@@ -342,6 +345,13 @@ def test_sudoers_example_documents_new_rules():
     assert "uninstall-agent --from-panel" in text
 
 
+def test_vpn_unit_reads_config_via_credential():
+    """Root службы без CAP_DAC_OVERRIDE не читает файл агента (0700) — конфиг передаёт systemd (LoadCredential)."""
+    text = (ROOT / "packaging" / "homelab-vpn.service").read_text(encoding="utf-8")
+    assert "LoadCredential=config.json:/opt/homelab-agent/etc/vpn/config.json" in text
+    assert "run -c %d/config.json" in text and "CAP_DAC_OVERRIDE" not in text.split("CapabilityBoundingSet=")[1]
+
+
 def test_units_do_not_use_old_paths():
     for name in ("homelab-agent.service", "homelab-agent-guard.service", "homelab-vpn.service"):
         text = (ROOT / "packaging" / name).read_text(encoding="utf-8")
@@ -349,3 +359,12 @@ def test_units_do_not_use_old_paths():
         assert "/usr/local/lib/homelab-agent" not in text
     guard_unit = (ROOT / "packaging" / "homelab-agent-guard.service").read_text(encoding="utf-8")
     assert "/opt/homelab-agent/bin/guard.py /opt/homelab-agent/app" in guard_unit
+
+
+def test_terminal_from_panel_keeps_local_target():
+    """Панель включает консоль через агента и задаёт лимиты, но адрес пересылки — только из agent.toml."""
+    from homelab_agent.remote_config import merge
+    base = {"terminal": {"enabled": False, "target": "127.0.0.1:2222"}}
+    out = merge(base, {"terminal": {"enabled": True, "max_sessions": 3, "target": "10.0.0.5:22"}})
+    assert out["terminal"] == {"enabled": True, "max_sessions": 3, "target": "127.0.0.1:2222"}
+    assert merge({}, {"terminal": {"enabled": True, "target": "10.0.0.5:22"}})["terminal"] == {"enabled": True}

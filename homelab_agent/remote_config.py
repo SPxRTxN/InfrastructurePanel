@@ -22,10 +22,11 @@ from . import guard
 
 log = logging.getLogger(__name__)
 
-MANAGED = ("interval", "collectors", "display", "wol", "update")
-LOCAL_ONLY = ("panel", "actions", "vpn", "terminal", "collectors.command")
+MANAGED = ("interval", "collectors", "display", "wol", "update", "terminal")
+LOCAL_ONLY = ("panel", "actions", "vpn", "collectors.command", "terminal.target")
 # Ключи внутри managed-разделов, которые тоже только на узле: update.restart_argv — это команда для запуска
-FORBIDDEN_KEYS = {"update": {"restart_argv"}, "collectors": {"command"}}
+# terminal.target — куда пересылать (локальный sshd): только на узле; панель включает/выключает и задаёт лимиты
+FORBIDDEN_KEYS = {"update": {"restart_argv"}, "collectors": {"command"}, "terminal": {"target"}}
 REMOTE_KEYS = {"config", "uninstall"}
 MAX_BYTES = 64 * 1024
 PANEL_FILE = "panel.toml"
@@ -87,16 +88,16 @@ def read_panel_toml(path: str) -> dict:
 
 
 def merge(base: dict, over: dict) -> dict:
-    """agent.toml + managed-разделы из panel.toml (раздел заменяется целиком, collectors.command остаётся)."""
+    """agent.toml + managed-разделы из panel.toml: раздел заменяется целиком, но ключи «только на узле»
+    (collectors.command, update.restart_argv, terminal.target) берутся из agent.toml."""
     out = dict(base)
     for name, value in over.items():
         if name not in MANAGED:
             continue
-        if name == "collectors" and isinstance(value, dict):
-            value = dict(value)
-            cmd = (base.get("collectors") or {}).get("command")
-            if cmd is not None:
-                value["command"] = cmd
+        if isinstance(value, dict):
+            value = _strip_forbidden(name, value)
+            local = base.get(name) or {}
+            value.update({k: local[k] for k in FORBIDDEN_KEYS.get(name, ()) if k in local})
         out[name] = value
     return out
 
@@ -110,6 +111,9 @@ def validate(cfg) -> None:
     build_collectors(cfg.collectors, cfg.interval)
     parse_wol(cfg.wol)
     parse_update(cfg.update)
+    from .tunnel import parse_terminal
+
+    parse_terminal(cfg.terminal)
     if cfg.display.get("enabled"):
         from .display.base import parse_display
 
@@ -201,6 +205,7 @@ def current_sections(cfg) -> dict:
         "display": cfg.display,
         "wol": cfg.wol,
         "update": _strip_forbidden("update", cfg.update),
+        "terminal": _strip_forbidden("terminal", cfg.terminal),
     }
 
 
