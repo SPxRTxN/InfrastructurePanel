@@ -9,12 +9,12 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.db import SessionLocal, get_db
-from app.models import Device, Node, NodeAction, NodeEvent, Server, User
+from app.models import Device, Node, NodeAction, NodeEvent, Server, User, VpnAssignment
 from app.routers import servers as servers_router
 from app.routers import vpn as vpn_router
 from urllib.parse import quote
 
-from app.services import agent_remote, agent_tunnel, agent_updates, agents, audit, device_actions, infra
+from app.services import agent_form, agent_install, agent_remote, agent_tunnel, agent_updates, agents, audit, device_actions, infra
 from app.utils import utcnow
 from app.web import json_download, render, require
 
@@ -57,6 +57,24 @@ def _sensor_groups(node: Node) -> list[tuple[str, list[dict]]]:
     return sorted(groups.items())
 
 
+def info_context(db: Session, node: Node, user: User) -> dict:
+    """Информация об узле для страницы сервера: сведения, датчики, события, журнал действий, сеть, VPN.
+    VPN-сервер называем только с settings.manage; остальным — лишь «включён/выключен»."""
+    a = db.scalar(select(VpnAssignment).where(VpnAssignment.node_id == node.id))
+    vpn = {"supported": vpn_router.supports_vpn(node), "on": bool(a and a.mode != "off"),
+           "status": a.status if a else "", "engine": a.engine if a else "",
+           "server": a.server_name if a and user.can("settings.manage") else ""}
+    return {
+        "n": summary(db, node), "groups": _sensor_groups(node), "vpn": vpn,
+        "events": db.scalars(select(NodeEvent).where(NodeEvent.node_id == node.id)
+                             .order_by(NodeEvent.ts.desc()).limit(20)).all(),
+        "actions_log": db.scalars(select(NodeAction).where(NodeAction.node_id == node.id)
+                                  .order_by(NodeAction.id.desc()).limit(5)).all(),
+        "interfaces": node.info.get("interfaces") or [],
+        "tunnel": "tunnel" in node.info.get("features", []),
+    }
+
+
 # ---------- Страницы ----------
 
 @router.get("/nodes")
@@ -73,12 +91,9 @@ def node_page(node_id: int, request: Request, user: User = Depends(require("serv
     node = _node(db, node_id)
     actions = db.scalars(select(NodeAction).where(NodeAction.node_id == node.id)
                          .order_by(NodeAction.id.desc()).limit(20)).all()
-    events = db.scalars(select(NodeEvent).where(NodeEvent.node_id == node.id)
-                        .order_by(NodeEvent.ts.desc()).limit(20)).all()
     servers = db.scalars(select(Server).order_by(Server.name)).all()
     ctx = {
-        "title": node.name, "n": summary(db, node), "groups": _sensor_groups(node), "actions_log": actions,
-        "events": events, "servers": servers, "chart_kinds": CHART_KINDS,
+        "title": node.name, "n": summary(db, node), "actions_log": actions, "servers": servers,
         "delete_confirm": infra.what_goes(db, node.server) if node.server
         else f"Удалить узел «{node.name}»? Токен перестанет действовать, история попадёт в архив.",
     }
@@ -103,10 +118,10 @@ def api_node_history(node_id: int, user: User = Depends(require("servers.view"))
 
 # ---------- Изменение ----------
 
-def _token_page(request: Request, user: User, db: Session, node: Node, token: str):
+def _token_page(request: Request, user: User, db: Session, node: Node, token: str, command: str = ""):
     """Токен показывается один раз — на этой странице; в БД остаётся только хеш."""
     response = render(request, "nodes/token.html", {
-        "title": f"Токен узла {node.name}", "node": node, "token": token,
+        "title": f"Токен узла {node.name}", "node": node, "token": token, "command": command,
         "ws_url": str(request.base_url).replace("http", "ws", 1) + "agent/ws"}, user, db)
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -126,7 +141,9 @@ async def node_create(request: Request, user: User = Depends(require("servers.ed
     db.add(node)
     db.commit()
     audit.log_event(db, "node_token", request=request, username=user.username, detail=f"узел «{node.name}» создан")
-    return _token_page(request, user, db, node, token)
+    # Основной способ — одна команда с одноразовой ссылкой; токен выше — для ручной установки
+    _, code = agent_install.create(db, node, user.id, False, "command")
+    return _token_page(request, user, db, node, token, agent_install.command(str(request.base_url), code))
 
 
 def _link_server(db: Session, node: Node, form, user: User) -> None:
@@ -206,8 +223,10 @@ async def node_delete(node_id: int, request: Request, user: User = Depends(requi
 
 def _config_page(request: Request, user: User, db: Session, node: Node, cfg: dict | None = None,
                  error: str = "", result: str = "", status: int = 200):
+    form = agent_form.view(cfg["managed"], cfg["raw"]) if cfg else []
     return render(request, "nodes/agent_config.html", {
-        "title": f"Настройки агента · {node.name}", "n": node, "cfg": cfg, "error": error, "result": result,
+        "title": f"Настройки агента · {node.name}", "n": node, "cfg": cfg, "form": form, "error": error,
+        "result": result,
     }, user, db, status)
 
 
@@ -228,7 +247,11 @@ async def node_config_set(node_id: int, request: Request, user: User = Depends(r
     node = _node(db, node_id)
     form = await request.form()
     try:
-        sections = agent_remote.parse_sections(form)
+        # Форма с полями (f.*, has_*, extra_*) или старый вид — JSON по разделам (sec_*)
+        if any(k.startswith(("f.", "has_", "extra_")) for k in form.keys()):
+            sections = agent_form.parse(form)
+        else:
+            sections = agent_remote.parse_sections(form)
         ok, detail = await agent_remote.set_config(db, node, sections)
     except agent_remote.RemoteError as e:
         return _config_page(request, user, db, node, error=str(e), status=409)

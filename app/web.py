@@ -53,12 +53,16 @@ SESSION_COOKIE = "hl_session"
 LOGIN_CSRF_COOKIE = "hl_login_csrf"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
-# (url, иконка, название, право). Главная видна всем вошедшим.
+# Меню — группы (подпись, пункты); пункт — (url, иконка, название, право). Главная видна всем вошедшим.
+# Новый раздел (контейнеры, медиа, Home Assistant…) — строка в подходящей группе или новая группа.
 MENU = [
-    ("/", "house", "Главная", None),
-    ("/jira", "square-kanban", "Jira", "jira.view"),
-    ("/confluence", "book-open", "Confluence", "confluence.view"),
-    ("/calendar", "calendar", "Календарь", "calendar.view"),
+    ("", [("/", "house", "Главная", None)]),
+    ("Работа", [
+        ("/jira", "square-kanban", "Jira", "jira.view"),
+        ("/confluence", "book-open", "Confluence", "confluence.view"),
+        ("/calendar", "calendar", "Календарь", "calendar.view"),
+    ]),
+    ("Сервисы", [("/services", "boxes", "Сервисы", "services.view")]),
 ]
 # «Инфраструктура» — один пункт меню с вкладками: (url, иконка, название, право)
 INFRA_TABS = [
@@ -71,12 +75,12 @@ INFRA_TABS = [
 SETTINGS_PAGES = {"/alerts", "/vpn", "/archive"}
 
 
-def _menu(user: User) -> list[tuple]:
-    items = [m for m in MENU if m[3] is None or user.can(m[3])]
+def _menu(user: User) -> list[tuple[str, list[tuple]]]:
+    groups = [(label, [m for m in items if m[3] is None or user.can(m[3])]) for label, items in MENU]
     tabs = [t for t in INFRA_TABS if user.can(t[3])]
-    if tabs:
-        items.insert(1, (tabs[0][0], "server", "Инфраструктура", None))
-    return items
+    if tabs:  # «Инфраструктура» — сразу после Главной
+        groups[0][1].insert(1, (tabs[0][0], "server", "Инфраструктура", None))
+    return [(label, items) for label, items in groups if items]
 
 
 class LoginRequired(Exception):
@@ -160,6 +164,8 @@ async def csrf_protect(conn: HTTPConnection, db: Session = Depends(get_db)) -> N
     request: Request = conn  # type: ignore[assignment]
     if request.method in SAFE_METHODS:
         return
+    if request.url.path.startswith("/agent/install/"):
+        return  # вызывает скрипт установки без cookie; доступ — по одноразовому коду в пути
     sent = request.headers.get("x-csrf-token")
     if not sent and request.headers.get("content-type", "").startswith(
         ("application/x-www-form-urlencoded", "multipart/form-data")
@@ -194,7 +200,7 @@ def render(request: Request, name: str, ctx: dict | None = None, user: User | No
             select(func.count()).select_from(Notification)
             .where(Notification.user_id == user.id, Notification.is_read.is_(False))
         )
-    context.setdefault("ui", {"theme": "dark", "accent": "pink", "density": "comfortable",
+    context.setdefault("ui", {"theme": "dark", "accent": "indigo", "density": "comfortable",
                               "sidebar_collapsed": False})
     path = request.url.path
     context["active"] = "/" if path == "/" else "/" + path.strip("/").split("/")[0]

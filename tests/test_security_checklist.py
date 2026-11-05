@@ -16,7 +16,10 @@ from tests.conftest import PASSWORD, login
 
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
 # /agent/releases/…: выдача архива агенту — вход не по сессии, а по токену узла (Bearer), без него 401
-PUBLIC = {"/login", "/logout", "/healthz", "/agent/releases/{filename}"}
+# /agent/install/{code}…: установка агента — вход по одноразовому коду в пути (404 без него), cookie и CSRF нет
+PUBLIC = {"/login", "/logout", "/healthz", "/agent/releases/{filename}", "/agent/install/{code}",
+          "/agent/install/{code}/bundle", "/agent/install/{code}/token", "/agent/install/{code}/report",
+          "/agent/install/{code}/windows"}
 
 
 def _routes():
@@ -60,7 +63,7 @@ def test_all_mutating_routes_require_csrf(admin):
     checked = 0
     for route in _routes():
         for method in route.methods - {"GET", "HEAD"}:
-            if route.path == "/login":
+            if route.path == "/login" or route.path.startswith("/agent/install/"):
                 continue
             r = admin.request(method, _concrete(route.path), follow_redirects=False)
             assert r.status_code == 403, f"{method} {route.path} без CSRF → {r.status_code}"

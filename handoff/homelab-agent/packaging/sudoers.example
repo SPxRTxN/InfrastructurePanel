@@ -23,3 +23,8 @@ homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx.service
 # VPN узла ([vpn] enabled = true, install.sh --vpn): только перезапуск и остановка своей службы
 # homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart homelab-vpn.service
 # homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl stop homelab-vpn.service
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart homelab-vpn-xray.service
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemctl stop homelab-vpn-xray.service
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemd-run --wait --pipe --collect --quiet /opt/homelab-agent/bin/vpn-setup install
+# homelab-agent ALL=(root) NOPASSWD: /usr/bin/systemd-run --wait --pipe --collect --quiet /opt/homelab-agent/bin/vpn-setup install-xray
+# (с `install.sh --vpn` все пять строки ставятся в блок «managed» сами)

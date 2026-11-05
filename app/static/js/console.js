@@ -5,20 +5,58 @@
   if (!access) return;
   const serverId = access.dataset.server;
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
-  const credSel = document.getElementById("console-cred");
-  const cmdInp = document.getElementById("console-cmd");
-  const passInp = document.getElementById("console-password");
-  const viaSel = document.getElementById("console-via");  // есть, только если у сервера агент с туннелем
-  const via = () => (viaSel && viaSel.value === "agent" ? "agent" : "");
-
-  // Поля «Пользователь/Пароль» — только для входа вручную
-  function syncManual() {
-    const manual = credSel.selectedOptions[0].dataset.manual === "1";
-    access.querySelectorAll(".console-manual").forEach((el) => { el.hidden = !manual; });
+  const dataset = access.dataset;
+  const hasKey = dataset.hasKey === "1";
+  const viaBox = document.getElementById("console-via");  // сегмент есть, только если у сервера агент с туннелем
+  const credSel = document.getElementById("console-cred");  // select — когда сохранённых входов несколько
+  const credOne = document.getElementById("console-cred-one");  // подпись — когда вход один
+  const via = () => {
+    const on = viaBox && viaBox.querySelector(".active");
+    return on ? on.dataset.via : "";
+  };
+  if (viaBox) {
+    viaBox.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-via]");
+      if (!b) return;
+      viaBox.querySelectorAll("button").forEach((x) => {
+        x.classList.toggle("active", x === b);
+        x.setAttribute("aria-checked", x === b ? "true" : "false");
+      });
+    });
   }
-  credSel.addEventListener("change", syncManual);
-  syncManual();
-  const isManual = () => credSel.selectedOptions[0].dataset.manual === "1";
+  const savedCred = () => (credSel ? credSel.value : credOne ? credOne.dataset.id : "");
+  // Введённые в окне логин и пароль: только в памяти страницы, нужны новым вкладкам и файлам
+  let manual = null;
+  // Что отправить серверу: введённый вручную вход, сохранённый, либо ничего (поля сервера + его ключ); null — войти нечем
+  function auth() {
+    if (manual) return { cred: null, cmd: `ssh -p ${dataset.port} ${manual.user}@${dataset.host}`, password: manual.password };
+    if (savedCred()) return { cred: savedCred(), cmd: "", password: "" };
+    if (hasKey) return { cred: null, cmd: "", password: "" };
+    return null;
+  }
+
+  // Окно логина и пароля — только когда войти нечем или сервер отказал
+  const dlg = document.getElementById("console-login");
+  const dlgForm = document.getElementById("console-login-form");
+  let afterLogin = null;
+  function askLogin(next, note) {
+    afterLogin = next;
+    document.getElementById("console-login-note").textContent =
+      (note ? note + " " : "") + dlg.dataset.host;
+    document.getElementById("login-password").value = "";
+    dlg.showModal();
+    document.getElementById("login-password").focus();
+  }
+  dlgForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    manual = { user: document.getElementById("login-user").value.trim(), password: document.getElementById("login-password").value };
+    document.getElementById("login-password").value = "";
+    const next = afterLogin;
+    afterLogin = null;
+    dlg.close();
+    if (next) next();
+  });
+  dlg.addEventListener("close", () => { afterLogin = null; });
 
   function say(el, text, bad) {
     el.textContent = text;
@@ -31,12 +69,15 @@
   const tabsEl = document.getElementById("term-tabs");
   const panes = document.getElementById("console-panes");
   const addBtn = document.getElementById("term-add");
-  const connectBtn = document.getElementById("console-connect");
+  const reconnectBtn = document.getElementById("console-reconnect");
+  const uploadBtn = document.getElementById("console-upload");
+  const fileInp = document.getElementById("console-file");
   const placeholder = document.getElementById("term-placeholder");
   const MAX_TABS = Number(addBtn.dataset.max) || 10;
   const tabs = [];
   let active = null;
   let counter = 0;
+  let note = null;  // сообщение о передаче файла: показывается в строке состояния вместо сообщения вкладки
 
   function svgIcon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -51,8 +92,9 @@
   function sync() {
     // Кнопки и строка состояния показывают активную вкладку
     addBtn.disabled = tabs.length >= MAX_TABS;
-    connectBtn.hidden = !active || active.state === "open" || active.state === "connecting";
-    say(status, active ? active.msg : "", active && active.bad);
+    reconnectBtn.hidden = !active || active.state !== "closed";
+    if (note) say(status, note.text, note.bad);
+    else say(status, active ? active.msg : "", active && active.bad);
     tabs.forEach((t) => {
       t.btn.classList.toggle("active", t === active);
       t.btn.setAttribute("aria-selected", t === active ? "true" : "false");
@@ -69,6 +111,7 @@
 
   function activate(tab) {
     active = tab;
+    note = null;
     sync();
     if (tab.fit) { tab.fit.fit(); tab.term.focus(); }  // скрытая панель не измеряется — подгоняем при показе
   }
@@ -115,6 +158,13 @@
   }
 
   async function connect(tab) {
+    const a = auth();
+    if (!a) {  // нет сохранённого входа и ключа — спрашиваем сразу
+      tab.state = "closed";
+      setMsg(tab, "Нужен логин и пароль.", true);
+      askLogin(() => connect(tab));
+      return;
+    }
     if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
       setMsg(tab, "Нет библиотеки xterm.js в app/static/vendor — см. README, раздел «SSH-консоль».", true);
       return;
@@ -150,75 +200,89 @@
     const send = (msg) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg));
 
     ws.onopen = () => {
-      const manual = isManual();
-      send({ ticket, via: via(), cred: credSel.value || null, cmd: manual ? cmdInp.value : "",
-             password: manual ? passInp.value : "", c: term.cols, r: term.rows,
+      send({ ticket, via: via(), cred: a.cred, cmd: a.cmd, password: a.password, c: term.cols, r: term.rows,
              record: (document.getElementById("console-record") || { checked: true }).checked });
     };
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) { term.write(new Uint8Array(ev.data)); return; }
       const msg = JSON.parse(ev.data);
       if (msg.t === "o") { tab.state = "open"; setMsg(tab, ""); if (tab === active) term.focus(); }
-      else if (msg.t === "e") { setMsg(tab, msg.m, true); }
+      else if (msg.t === "e") {
+        setMsg(tab, msg.m, true);
+        if (msg.code === "auth") tab.authFailed = true;
+      }
     };
     ws.onclose = () => {
       if (tab.ws !== ws) return;  // вкладку переподключили или закрыли
       term.options.disableStdin = true;
       tab.state = "closed";
       setMsg(tab, tab.bad ? tab.msg : "Консоль закрыта.", tab.bad);
+      if (tab.authFailed) {  // неверный пароль/ключ: забываем введённое и просим вход заново
+        tab.authFailed = false;
+        manual = null;
+        if (tab === active) askLogin(() => connect(tab), "Вход не удался.");
+      }
     };
     term.onData((d) => send({ t: "i", d }));
     term.onResize(({ cols, rows }) => send({ t: "r", c: cols, r: rows }));
   }
 
-  connectBtn.addEventListener("click", () => { if (active) connect(active); });
+  reconnectBtn.addEventListener("click", () => { if (active) connect(active); });
   addBtn.addEventListener("click", () => {
-    const tab = newTab();  // новая вкладка сразу подключается выбранным выше входом
+    const tab = newTab();  // новая вкладка сразу подключается выбранным входом
     if (tab) connect(tab);
   });
   window.addEventListener("resize", () => { if (active && active.fit) active.fit.fit(); });
-  // Введённый вручную пароль остаётся в поле, пока открыта страница, — он нужен новым вкладкам (никуда не сохраняется)
-  newTab();
+  const first = newTab();  // терминал подключается сам при открытии страницы
+  if (first) connect(first);
 
   // ---------- Передача файла ----------
-  const form = document.getElementById("upload-form");
-  const bar = document.getElementById("upload-progress");
-  const upStatus = document.getElementById("upload-status");
+  function setNote(text, bad) {
+    note = text ? { text, bad: !!bad } : null;
+    sync();
+  }
 
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const file = form.elements.file.files[0];
-    if (!file) return;
-    if (file.size > Number(form.dataset.max)) {
-      say(upStatus, "Файл больше разрешённого размера.", true);
-      return;
-    }
-    const q = new URLSearchParams({ name: file.name, overwrite: form.elements.overwrite.checked ? "1" : "0" });
-    if (credSel.value) q.set("cred", credSel.value);
+  function upload(file, overwrite) {
+    const a = auth();
+    if (!a) { askLogin(() => upload(file, overwrite)); return; }
+    const q = new URLSearchParams({ name: file.name, overwrite: overwrite ? "1" : "0" });
+    if (a.cred) q.set("cred", a.cred);
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", `/servers/${serverId}/files?${q}`);
     xhr.setRequestHeader("X-CSRF-Token", csrf);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.setRequestHeader("Accept", "application/json");  // ошибки — JSON с текстом, а не страница ошибки
     if (via()) xhr.setRequestHeader("X-SSH-Via", "agent");
-    if (isManual()) {
+    if (manual) {
       // В заголовке допустим только ASCII — кириллица в пароле передаётся процентной кодировкой
-      xhr.setRequestHeader("X-SSH-Command", encodeURIComponent(cmdInp.value));
-      if (passInp.value) xhr.setRequestHeader("X-SSH-Password", encodeURIComponent(passInp.value));
+      xhr.setRequestHeader("X-SSH-Command", encodeURIComponent(a.cmd));
+      if (a.password) xhr.setRequestHeader("X-SSH-Password", encodeURIComponent(a.password));
     }
-    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) bar.value = Math.round(ev.loaded * 100 / ev.total); };
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) setNote(`Передача ${file.name}: ${Math.round(ev.loaded * 100 / ev.total)}%`);
+    };
     xhr.onload = () => {
-      form.querySelector("button").disabled = false;
+      uploadBtn.disabled = false;
       let body = {};
       try { body = JSON.parse(xhr.responseText); } catch (err) { /* не JSON — ниже общий текст */ }
-      if (xhr.status === 200) say(upStatus, `Готово: ${body.path} у ${body.user} (${body.size} Б).`);
-      else say(upStatus, body.detail || `Ошибка ${xhr.status}`, true);
+      if (xhr.status === 200) setNote(`Готово: ${body.path} у ${body.user} (${body.size} Б).`);
+      else if (xhr.status === 409) {  // файл уже есть
+        setNote("");
+        if (window.confirm(`Файл «${file.name}» уже есть. Заменить?`)) upload(file, true);
+      } else setNote(body.detail || `Ошибка ${xhr.status}`, true);
     };
-    xhr.onerror = () => { form.querySelector("button").disabled = false; say(upStatus, "Связь прервалась.", true); };
-    form.querySelector("button").disabled = true;
-    bar.hidden = false;
-    bar.value = 0;
-    say(upStatus, `Передача ${file.name}…`);
+    xhr.onerror = () => { uploadBtn.disabled = false; setNote("Связь прервалась.", true); };
+    uploadBtn.disabled = true;
+    setNote(`Передача ${file.name}…`);
     xhr.send(file);
+  }
+
+  uploadBtn.addEventListener("click", () => fileInp.click());
+  fileInp.addEventListener("change", () => {
+    const file = fileInp.files[0];
+    fileInp.value = "";
+    if (!file) return;
+    if (file.size > Number(uploadBtn.dataset.max)) { setNote("Файл больше разрешённого размера.", true); return; }
+    upload(file, false);
   });
 })();

@@ -10,23 +10,31 @@
 # Удаление — uninstall-agent.ps1 (подробно в УДАЛЕНИЕ.md).
 # В Windows нет температур (без сторонних драйверов), systemd и дисплея; остальное — как в Linux.
 
+# Запуск из панели (команда установки для Windows) — без вопросов:
+#   start-agent.ps1 -NodeName <узел> -PanelWs <wss://…/agent/ws> -TokenPath <файл с токеном> -Unattended
+# Имена параметров не совпадают с $NODE/$TOKEN: в PowerShell имена переменных без учёта регистра.
+param([string]$NodeName = "", [string]$PanelWs = "", [string]$TokenPath = "", [switch]$Unattended)
 $TOKEN = ""
 $NODE = ""                                       # пусто — имя компьютера; должно совпадать с именем узла в панели
 $PANEL_URL = "ws://192.168.1.39:8000/agent/ws"  # за HTTPS-прокси — wss://…
 
 $ErrorActionPreference = "Stop"
+if ($NodeName) { $NODE = $NodeName }
+if ($PanelWs) { $PANEL_URL = $PanelWs }
+if ($TokenPath) { $TOKEN = ([IO.File]::ReadAllText($TokenPath)).Trim() }
 $Here = Split-Path -Parent $PSCommandPath
 $Prefix = Join-Path $env:ProgramFiles "homelab-agent"
 $Data = Join-Path $env:ProgramData "homelab-agent"
 $TaskName = "homelab-agent"
 
 function Say($text) { Write-Host "==> $text" -ForegroundColor Cyan }
-function Die($text) { Write-Host "ОШИБКА: $text" -ForegroundColor Red; Read-Host "Enter — выход"; exit 1 }
+function Die($text) { Write-Host "ОШИБКА: $text" -ForegroundColor Red; if (-not $Unattended) { Read-Host "Enter — выход" }; exit 1 }
 
 # --- права администратора ---
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) {
+    if ($Unattended) { Die "нужен PowerShell от имени администратора (ПКМ по «Пуск» → «Терминал (администратор)»)" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     exit 0
 }
@@ -121,8 +129,10 @@ if ($TOKEN -ne "") {
     Say "Токен → $Data\token-main"
     [IO.File]::WriteAllText((Join-Path $Data "token-main"), $TOKEN, $Utf8NoBom)
     # Токен больше не нужен в этом файле; BOM сохраняем — без него Windows PowerShell 5.1 не прочтёт кириллицу
-    $self = [IO.File]::ReadAllLines($PSCommandPath) -replace '^\$TOKEN = ".*"$', '$TOKEN = ""'
-    [IO.File]::WriteAllLines($PSCommandPath, $self, (New-Object Text.UTF8Encoding $true))
+    if (-not $TokenPath) {
+        $self = [IO.File]::ReadAllLines($PSCommandPath) -replace '^\$TOKEN = ".*"$', '$TOKEN = ""'
+        [IO.File]::WriteAllLines($PSCommandPath, $self, (New-Object Text.UTF8Encoding $true))
+    }
 }
 
 Say "Проверка конфига"
@@ -148,8 +158,10 @@ $log = Join-Path $Logs "agent.log"
 if (Test-Path $log) { Get-Content -Tail 8 -Encoding UTF8 $log }
 if ((Test-Path $log) -and (Select-String -Path $log -Pattern "подключено" -Quiet)) {
     Say "Готово: агент подключён к панели и запустится сам после перезагрузки"
+    if ($Unattended) { exit 0 }
 } else {
     Write-Host "Агент запущен, подключения ещё не видно. Журнал: $log"
     Write-Host "  bad token — не совпадают имя узла (node в $Config) или токен; ошибка соединения — адрес панели или брандмауэр."
 }
+if ($Unattended) { exit 2 }  # служба запущена, подключения не видно (как у start-agent: код 2)
 Read-Host "Enter — закрыть"

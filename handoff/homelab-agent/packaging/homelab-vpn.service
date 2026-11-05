@@ -6,8 +6,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Конфиг пишет агент (пользователь homelab-agent) после проверки `sing-box check`; TUN и маршруты требуют root
-ExecStart=/usr/local/bin/sing-box run -c /opt/homelab-agent/etc/vpn/config.json
+# Конфиг пишет агент (пользователь homelab-agent, каталог 0700) после проверки `sing-box check`; TUN и маршруты
+# требуют root. Root здесь без CAP_DAC_OVERRIDE (см. CapabilityBoundingSet) и чужой файл не прочтёт — поэтому
+# файл читает сам systemd и кладёт копию в закрытый каталог учётных данных службы (%d), только для чтения.
+LoadCredential=config.json:/opt/homelab-agent/etc/vpn/config.json
+ExecStart=/usr/local/bin/sing-box run -c %d/config.json
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

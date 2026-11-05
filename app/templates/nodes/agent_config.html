@@ -1,23 +1,52 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, csrf, flash with context %}
+{# Настройки агента полями: в каждом разделе — заданные на узле параметры, «Добавить параметр» — остальные
+   с подсказками. Убранные/не добавленные поля выключены (disabled) и не отправляются. agentconfig.js — показ/скрытие. #}
+{% macro input(r) %}{% set f = r.f %}
+  {% if f.type == "flag" %}<input type="hidden" name="{{ f.name }}" value="1"{{ " disabled" if not r.present }}><span class="pill">включён</span>
+  {% elif f.type == "bool" %}<select name="{{ f.name }}"{{ " disabled" if not r.present }}>
+      <option value="1" {{ "selected" if r.value != "0" }}>да</option><option value="0" {{ "selected" if r.value == "0" }}>нет</option></select>
+  {% elif f.type == "choice" %}<select name="{{ f.name }}"{{ " disabled" if not r.present }}>
+      {% for v, l in f.choices %}<option value="{{ v }}" {{ "selected" if r.value == v }}>{{ l }}</option>{% endfor %}</select>
+  {% elif f.type == "json" %}<textarea name="{{ f.name }}" rows="3" maxlength="20000" spellcheck="false" placeholder="{{ f.example }}"{{ " disabled" if not r.present }}>{{ r.value }}</textarea>
+  {% else %}<input name="{{ f.name }}" value="{{ r.value }}" maxlength="2000" spellcheck="false" autocomplete="off"
+      {% if f.type == "num" %}inputmode="decimal"{% endif %}{{ " disabled" if not r.present }}>
+  {% endif %}
+{% endmacro %}
 {% block content %}
 <a href="/nodes/{{ n.id }}" class="muted">{{ icon("arrow-left") }} К узлу «{{ n.name }}»</a>
 {{ flash(error, result) }}
 {% if cfg %}
-<section class="card">
-  <h3>Настройки агента</h3>
-  <p class="muted">Каждый раздел — JSON-объект. Агент сам проверяет итоговый конфиг и при успехе перезапускается.</p>
-  <form method="post" action="/nodes/{{ n.id }}/config/set" class="form">{{ csrf() }}
-    {% for name in cfg.managed %}
-    <label>{{ name }}
-      <textarea name="sec_{{ name }}" rows="6" maxlength="20000" spellcheck="false">{{ cfg.sections[name] }}</textarea></label>
-    {% endfor %}
-    <div><button class="btn btn-primary btn-sm" data-confirm="Сохранить настройки и перезапустить агента?">Сохранить</button></div>
-  </form>
-  {% if cfg.local_only %}
-  <h4>Меняется только на узле</h4>
-  <p class="muted">{{ cfg.local_only | join(", ") }}</p>
-  {% endif %}
-</section>
+<form method="post" action="/nodes/{{ n.id }}/config/set" class="agent-config" id="agent-config">{{ csrf() }}
+  {% for sec in form %}
+  <section class="card" id="cfg-{{ sec.name }}">
+    <div class="card-head"><h3>{{ sec.title }}</h3></div>
+    <input type="hidden" name="has_{{ sec.name }}" value="1">
+    {% if sec.name != "interval" %}<input type="hidden" name="extra_{{ sec.name }}" value="{{ sec.extra }}">{% endif %}
+    <div class="cfg-rows">
+      {% for r in sec.rows %}
+      <div class="cfg-row" data-field="{{ r.f.name }}"{{ " hidden" if not r.present }}>
+        <label for="{{ r.f.name }}">{{ r.f.label }}</label>
+        <div class="cfg-input">{{ input(r) }}<small class="field-note">{{ r.f.hint }}</small></div>
+        {% if sec.name != "interval" %}<button type="button" class="icon-btn cfg-remove" title="Убрать — будет значение по умолчанию">{{ icon("x") }}</button>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if sec.name != "interval" %}
+    <div class="cfg-add">
+      <select aria-label="Добавить параметр">
+        <option value="">{{ "+" }} Добавить параметр…</option>
+        {% for r in sec.rows %}<option value="{{ r.f.name }}" title="{{ r.f.hint }}"{{ " hidden disabled" if r.present }}>{{ r.f.label }}</option>{% endfor %}
+      </select>
+    </div>
+    {% if sec.extra != "{}" %}<small class="field-note">Ещё параметры, заданные на узле вручную, сохраняются как есть.</small>{% endif %}
+    {% endif %}
+  </section>
+  {% endfor %}
+  <div class="row"><button class="btn btn-primary" data-confirm="Сохранить настройки и перезапустить агента?">Сохранить</button></div>
+  <small class="field-note">Агент сам проверяет итог и при успехе перезапускается. Убранный параметр — значение по умолчанию.
+    {% if cfg.local_only %}Только на узле, в agent.toml: {{ cfg.local_only | join(", ") }}.{% endif %}</small>
+</form>
 {% endif %}
 {% endblock %}
+{% block scripts %}<script src="/static/js/agentconfig.js" defer></script>{% endblock %}

@@ -50,9 +50,10 @@ say "Службы"
 systemctl disable --now homelab-agent-guard.timer 2>/dev/null || true
 systemctl stop homelab-agent-guard.service 2>/dev/null || true
 systemctl disable --now homelab-agent.service 2>/dev/null || true
+systemctl disable --now homelab-vpn-xray.service 2>/dev/null || true
 systemctl disable --now homelab-vpn.service 2>/dev/null || true
 # Ссылки на юниты (новая раскладка) и обычные файлы (старая)
-rm -f /etc/systemd/system/homelab-agent.service /etc/systemd/system/homelab-vpn.service
+rm -f /etc/systemd/system/homelab-agent.service /etc/systemd/system/homelab-vpn.service /etc/systemd/system/homelab-vpn-xray.service
 rm -f /etc/systemd/system/homelab-agent-guard.service /etc/systemd/system/homelab-agent-guard.timer
 rm -rf /etc/systemd/system/homelab-agent.service.d
 systemctl daemon-reload 2>/dev/null || true

@@ -177,6 +177,72 @@ def serve(host: str, port: int) -> int:
     return 0
 
 
+def nodes_check() -> int:
+    """Узлы глазами панели: на связи ли, когда были данные, версия, последние попытки входа агента. Без токенов."""
+    from datetime import timedelta
+
+    from app.models import Node, SecurityEvent
+    from app.services import agents
+    from app.utils import utcnow
+    with SessionLocal() as db:
+        now = utcnow()
+        for n in db.scalars(select(Node).order_by(Node.name)).all():
+            seen = f"{int((now - n.last_seen).total_seconds())} с назад" if n.last_seen else "никогда"
+            state = "на связи" if agents.is_online(db, n) else ("соединение есть, данных нет" if n.connected else "НЕ на связи")
+            print(f"{n.name}: {state}; данные — {seen}; агент {n.version or '?'}; с адреса {n.remote_ip or '—'}; "
+                  f"возможности: {', '.join(n.info.get('features', [])) or '—'}")
+            auth = db.scalars(select(SecurityEvent).where(SecurityEvent.kind == "agent_auth", SecurityEvent.username == n.name,
+                                                          SecurityEvent.ts >= now - timedelta(days=1))
+                              .order_by(SecurityEvent.id.desc()).limit(3)).all()
+            for e in auth:
+                print(f"    вход {e.ts:%d.%m %H:%M} с {e.ip or '?'}: {'ок' if e.ok else 'ОТКАЗ — ' + (e.detail or '')}")
+            if not auth:
+                print("    за сутки агент с этим именем не подключался (не та панель/адрес, имя узла или сеть)")
+        bad = db.scalars(select(SecurityEvent).where(SecurityEvent.kind == "agent_auth", SecurityEvent.ok.is_(False),
+                                                    SecurityEvent.ts >= now - timedelta(days=1))
+                         .order_by(SecurityEvent.id.desc()).limit(5)).all()
+        names = {n.name for n in db.scalars(select(Node))}
+        for e in (e for e in bad if e.username not in names):
+            print(f"Чужое имя узла «{e.username}» с {e.ip}: {e.detail} — имя в agent.toml не совпадает с узлом в панели")
+    return 0
+
+
+def settings_check(fix: bool) -> int:
+    """Записи настроек, которых нет в реестре или со значением, потерявшим смысл. Значения не печатаются."""
+    from app.services import settings_registry as reg
+    with SessionLocal() as db:
+        rows = reg.stale_rows(db)
+        if not rows:
+            print("Настройки в порядке: лишних и устаревших записей нет")
+            return 0
+        for row, reason in rows:
+            print(f"  {row.key}{' (личная)' if row.user_id else ''}: {reason}")
+        if fix:
+            print(f"Исправлено записей: {reg.prune_stale(db)}")
+        else:
+            print(f"Найдено: {len(rows)}. Исправить: python -m app.cli settings-check --fix (сначала бэкап)")
+    return 0
+
+
+def vpn_check() -> int:
+    """Параметры VPN-серверов, назначенных узлам, без ключей: помогает найти причину отказа reality."""
+    from app.models.vpn import VpnAssignment
+    from app.services import vpn
+    with SessionLocal() as db:
+        rows = db.scalars(select(VpnAssignment)).all()
+        if not rows:
+            print("VPN никому не назначен")
+        for a in rows:
+            print(f"Узел {a.node.name}: режим {a.mode}, статус {a.status}")
+            server = next((s for s in vpn.unpack(a.subscription.servers_enc) if s["key"] == a.server_key), None)
+            if server is None:
+                print("  сервера больше нет в подписке")
+                continue
+            for line in vpn.diagnose(server):
+                print("  " + line)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -197,6 +263,10 @@ def main(argv: list[str] | None = None) -> int:
     p_agent.add_argument("action", choices=["add"])
     p_agent.add_argument("file", help="архив агента .tar.gz (с homelab_agent/__init__.py)")
     p_agent.add_argument("--notes", default="", help="заметки к версии")
+    sub.add_parser("nodes-check", help="узлы: на связи ли, версия, последние входы агентов (без токенов)")
+    p_set = sub.add_parser("settings-check", help="найти (и --fix — убрать) устаревшие записи настроек")
+    p_set.add_argument("--fix", action="store_true")
+    sub.add_parser("vpn-check", help="параметры назначенных VPN-серверов без ключей (причина отказа reality)")
     sub.add_parser("encrypt-db", help="зашифровать существующую открытую БД ключом DB_ENCRYPTION_KEY")
     args = parser.parse_args(argv)
 
@@ -219,6 +289,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_guide_sync()
     if args.cmd == "serve":
         return serve(args.host, args.port)
+    if args.cmd == "nodes-check":
+        return nodes_check()
+    if args.cmd == "settings-check":
+        return settings_check(args.fix)
+    if args.cmd == "vpn-check":
+        return vpn_check()
     if args.cmd == "backup":
         return backup(args.dir, args.keep, "" if args.no_age else args.age_recipient)
     return 1

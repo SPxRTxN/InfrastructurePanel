@@ -66,7 +66,7 @@ limit = "3/h"                      # не чаще 3 раз в час (един�
 
 # SSH-консоль и передача файлов через агента: панель просит туннель, агент пересылает байты на ЛОКАЛЬНЫЙ sshd узла.
 # Входит и шифрует SSH сама панель; агент команд не выполняет и подключается только к target (только loopback).
-# Только локально: панель этот раздел менять не может. По умолчанию выключено.
+# Панель может включить/выключить и задать лимиты («Настройки агента» → «Консоль через агента»); target — только здесь. По умолчанию выключено.
 # [terminal]
 # enabled = true
 # target = "127.0.0.1:22"                     # только 127.0.0.0/8 или ::1
@@ -85,8 +85,8 @@ limit = "3/h"                      # не чаще 3 раз в час (един�
 # restart_argv = ["sudo", "-n", "systemctl", "restart", "homelab-agent.service"]
 
 # Управление агентом из панели (только при раскладке /opt/homelab-agent). Выключатели владельца узла, по умолчанию
-# включены. config — панель читает и меняет разделы interval, collectors, display, wol, update (сохраняются в
-# etc/panel.toml поверх этого файла; panel, actions, vpn, collectors.command и update.restart_argv панель менять
+# включены. config — панель читает и меняет разделы interval, collectors, display, wol, update, terminal (сохраняются в
+# etc/panel.toml поверх этого файла; panel, actions, vpn, collectors.command, update.restart_argv и terminal.target панель менять
 # не может). uninstall — панель может удалить агента с узла (sudo-правило ставит install.sh).
 [remote]
 config = true

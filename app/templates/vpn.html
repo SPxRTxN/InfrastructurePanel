@@ -46,7 +46,8 @@
     <thead><tr><th>Узел</th><th>Сейчас</th><th>Включить через</th><th></th></tr></thead>
     <tbody>
     {% for n in nodes %}{% set a = assignments.get(n.id) %}
-      <tr><td><a href="/nodes/{{ n.id }}">{{ n.name }}</a>{% if not supports(n) %}<br><small class="muted">агент без VPN</small>{% endif %}</td>
+      <tr><td><a href="/nodes/{{ n.id }}">{{ n.name }}</a>{% if not supports(n) %}<br><small class="muted">агент без VPN</small>{% endif %}
+          <br><small><a href="{{ '/servers/%d/settings#vpn' % n.server_id if n.server_id else '/nodes/%d#vpn' % n.id }}">Настроить</a></small></td>
         <td>{% if a and a.mode != "off" %}<span class="status {{ 'ok' if a.status == 'applied' else ('bad' if a.status in ('failed', 'unsupported') else '') }}">{{ status_text.get(a.status, a.status) }}</span>
             {{ a.server_name }}{% if a.detail %}<br><small class="muted">{{ a.detail }}</small>{% endif %}
           {% elif a %}<span class="status">выключен</span>{% if a.detail %}<br><small class="muted">{{ a.detail }}</small>{% endif %}

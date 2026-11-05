@@ -11,6 +11,12 @@ Homelab Dashboard по `wss://…/agent/ws` и выполняет **только
 - RSS после импорта ~29 МБ (с дисплеем ~33 МБ; замер на x86_64, Python 3.12), сбор раз в 10 с — доли процента CPU.
 
 ## Быстрая установка (любой узел)
+**Командой из панели:** Инфраструктура → Серверы → страница сервера → «Настройки узла» → «Установить агента» — панель
+покажет команду `curl -fsSL '…' | sudo bash` (или поставит агента сама по SSH). Команда скачивает агента, ставит
+службу, берёт токен и подключает узел; галочка «VPN» дополнительно ставит помощника и sing-box. Ошибка на любом шаге
+выводится с подсказкой и ссылкой на раздел «Установка вручную» ниже.
+
+## Установка вручную
 1. В панели: **Инфраструктура → Узлы → добавить узел** — скопировать токен.
 2. С сервера панели (или любого ПК с SSH до узла) скопировать агента:
    `sudo bash /opt/homelab-dashboard/tools/push-agent.sh user@узел` (из этого каталога — `./push-agent user@узел`).
@@ -18,6 +24,11 @@ Homelab Dashboard по `wss://…/agent/ws` и выполняет **только
    - **Linux** (Debian/Ubuntu/Raspberry Pi OS, Arch, Fedora, openSUSE; нужен systemd):
      `cd ~/homelab-agent && nano start-agent` → `TOKEN="…"`, `NODE="…"` → `./start-agent`
    - **Windows 10/11 / Server**: `homelab-agent\start-agent.ps1` → `$TOKEN = "…"` → ПКМ → «Выполнить с помощью PowerShell».
+
+   Флаги `start-agent` (нужны автоматической установке, вручную не обязательны): `--token-file PATH`, `--node NAME`,
+   `--panel-url WS_URL`, `--vpn`, `--report-url URL`, `--help-url URL` (см. `./start-agent --help`). Без терминала токен
+   не спрашивается — нужен `--token-file`. Код выхода: 0 — подключено, 1 — ошибка шага, 2 — служба запущена, но панель
+   не подключилась (проверьте имя узла, токен, адрес).
 
    Установщик ставит Python (apt/pacman/dnf/zypper/winget), службу с автозапуском (systemd / задача планировщика от
    «Локальной службы»), кладёт токен в защищённый файл и стирает его из установщика. Дисплей включается сам, если
@@ -76,6 +87,18 @@ cd /opt/homelab-agent/app/current && sudo -u homelab-agent .venv/bin/python -m h
 sudo systemctl enable --now homelab-agent
 journalctl -u homelab-agent -f
 ```
+
+### VPN вручную
+`sudo ./packaging/install.sh --vpn --upgrade` — ставит `bin/vpn-setup`, строки sudoers (restart/stop `homelab-vpn.service`,
+`vpn-setup install`), включает `[vpn] enabled = true` и сразу запускает `vpn-setup install` (sing-box 1.14.4 с GitHub,
+сумма SHA-256 проверяется). Нет сети — установка продолжится, агент повторит попытку, когда панель пришлёт VPN.
+
+Второй движок — Xray: sing-box пробуется первым, если он отказал (или сервер ему не подходит) — Xray через
+`vpn-setup install-xray` (версия и SHA-256 закреплены; бинарник `/usr/local/bin/xray`). Xray работает под
+пользователем `hl-xray` (`homelab-vpn-xray.service`, конфиг через `LoadCredential`) как локальный SOCKS
+127.0.0.1:10808, а TUN держит sing-box. Не вышло ни там, ни там — возврат прежнего состояния. В sudoers добавлены
+restart/stop `homelab-vpn-xray.service` и `vpn-setup install-xray` — через `systemd-run`, чтобы помощник работал вне песочницы агента (там `/usr` только для чтения). `install.sh --vpn` ставит Xray сразу.
+Без помощника: положите `sing-box` в `/usr/local/bin` вручную.
 
 ## Установка на сервер (Debian 12 / Ubuntu 24.04, amd64 или arm64)
 ```bash

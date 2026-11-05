@@ -304,8 +304,15 @@ class Updater:
         if not req.is_file():
             raise UpdateError(f"в пакете нет {req.name}")
         code, out = self.run([self.python, "-m", "venv", str(dest / ".venv")], dest, 180)
+        if code and "ensurepip" in out:
+            # venv прячет вывод ensurepip («returned non-zero exit status 1») — запускаем его сами ради причины
+            newpy = str(dest / ".venv" / "bin" / "python")
+            _c, why = self.run([newpy, "-m", "ensurepip", "--upgrade", "--default-pip"], dest, 180)
+            out = " ".join((why or out).split())[-400:]
+            out += (f" (на узле: sudo apt install python{sys.version_info.major}.{sys.version_info.minor}-venv"
+                    " — на Debian/Ubuntu ensurepip без него не работает)")
         if code:
-            raise UpdateError(f"venv не создан: {out}")
+            raise UpdateError(f"venv не создан: {out.strip()[-500:]}")
         py = str(dest / ".venv" / "bin" / "python")
         code, out = self.run([py, "-m", "pip", "install", "--quiet", "--only-binary=:all:", "-r", str(req)], dest, 900)
         if code:

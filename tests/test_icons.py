@@ -17,7 +17,8 @@ def _builder():
 
 def test_all_used_icons_are_built():
     have = set(re.findall(r'<symbol viewBox="0 0 24 24" id="([a-z0-9-]+)"', (ROOT / "app/static/icons.svg").read_text()))
-    need = _builder().used_in_templates() | {m[1] for m in MENU + INFRA_TABS}
+    menu_items = [m for _, items in MENU for m in items]  # MENU — группы (подпись, пункты)
+    need = _builder().used_in_templates() | {m[1] for m in menu_items + INFRA_TABS}
     assert need - have == set(), "запустите .venv/bin/python tools/build_icons.py"
 
 

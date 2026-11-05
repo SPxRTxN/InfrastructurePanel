@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf with context %}
+{% set can_edit = user.can("services.edit") %}
+
+{% block content %}
+<div class="toolbar">
+  <form method="get" class="filters">
+    <input name="q" value="{{ q }}" placeholder="Поиск по имени…" class="search">
+    <button class="btn">{{ icon("search") }} Найти</button>
+    {% if q %}<a class="btn" href="/services">{{ icon("x") }}</a>{% endif %}
+  </form>
+</div>
+
+{% if can_edit %}
+<details class="card collapsible">
+  <summary>{{ icon("plus") }} Новый сервис</summary>
+  {% if servers %}{% with sv = none, action = "/services" %}{% include "services/_form.html" %}{% endwith %}
+  {% else %}<p class="muted">Сначала добавьте узел в разделе «Серверы».</p>{% endif %}
+</details>
+{% endif %}
+
+{% if not services %}
+<div class="card empty-state"><p class="muted">Сервисов пока нет.{% if can_edit and not q %} Добавьте первый кнопкой «Новый сервис».{% endif %}</p></div>
+{% else %}
+<div class="grid-cards">
+  {% for sv in services %}
+  <div class="card">
+    <div class="card-head">
+      <h3><a href="/services/{{ sv.id }}">{{ icon(kinds.get(sv.kind, kinds["generic"])[1]) }} {{ sv.name }}</a></h3>
+      {% if sv.ok %}<span class="status ok">доступен</span>{% elif sv.ok is false %}<span class="status bad">недоступен</span>{% else %}<span class="status">—</span>{% endif %}
+    </div>
+    <p class="muted small">{{ sv.server.name }}</p>
+    {% if sv.web_url %}<a class="btn btn-sm" href="{{ sv.web_url }}" target="_blank" rel="noopener noreferrer">{{ icon("external-link") }} Открыть</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

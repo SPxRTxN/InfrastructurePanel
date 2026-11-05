@@ -22,7 +22,7 @@ UNINSTALL_TIMEOUT = 10.0
 TOMBSTONE_DAYS = 30
 MAX_SECTION = 20_000
 # Разделы, которые панель вообще вправе слать (агент сам сообщает свой список managed и проверяет его)
-SECTIONS = ("interval", "collectors", "display", "wol", "update")
+SECTIONS = ("interval", "collectors", "display", "wol", "update", "terminal")
 
 _ids = itertools.count(1)
 _waiters: dict[str, tuple[int, asyncio.Future]] = {}
@@ -76,6 +76,7 @@ async def get_config(db: Session, node: Node) -> dict:
     sections = data["sections"]
     return {"managed": managed,
             "sections": {m: json.dumps(sections.get(m, {}), ensure_ascii=False, indent=2) for m in managed},
+            "raw": {m: sections.get(m) for m in managed},  # для формы с полями (agent_form.view)
             "local_only": [x for x in data.get("local_only", []) if isinstance(x, str)]}
 
 

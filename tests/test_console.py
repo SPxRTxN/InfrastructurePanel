@@ -191,6 +191,29 @@ def test_ssh_error_shown_without_details(admin, server, monkeypatch, db):
     assert ev.ok is False and console._open == {}
 
 
+def test_auth_failure_has_code(admin, server, monkeypatch):
+    class PermissionDenied(Exception):
+        pass
+
+    async def deny(*a, **kw):
+        raise PermissionDenied("Permission denied")
+
+    monkeypatch.setattr(console, "open_shell", deny)
+    console._open.clear()
+    msg = _session(admin, server.id, {"cmd": "ssh user@192.0.2.10", "password": "wrong"})
+    assert msg["t"] == "e" and msg["code"] == "auth" and "вход не удался" in msg["m"]
+    assert "wrong" not in json.dumps(msg)
+
+
+def test_other_errors_have_no_auth_code(admin, server, monkeypatch):
+    async def refuse(*a, **kw):
+        raise ConnectionRefusedError()
+
+    monkeypatch.setattr(console, "open_shell", refuse)
+    console._open.clear()
+    assert "code" not in _session(admin, server.id, {})
+
+
 def test_error_text_explains_network_failures():
     import errno
     import socket
@@ -353,6 +376,9 @@ def test_page_has_placeholder_and_limit(admin, server):
 def test_page_has_terminal_tabs(admin, server, db):
     page = admin.get(f"/servers/{server.id}/console").text
     assert 'id="term-tabs"' in page and 'id="term-add"' in page and 'data-max="10"' in page
+    # Без кнопки «Подключиться»: подключается само; есть «Переподключить», «Загрузить файл» и окно логина
+    assert "Подключиться" not in page and 'id="console-reconnect"' in page and 'id="console-upload"' in page
+    assert '<dialog id="console-login"' in page and 'id="upload-form"' not in page
     assert '<template id="term-placeholder">' in page
     assert console.MAX_PER_USER == 10  # всего вкладок-консолей на пользователя
     # «Входы и ключи» — сразу в блок доступа настроек (сервер без узла — своя страница настроек)

@@ -5,6 +5,15 @@
 <section class="card">
   <h3>{{ icon("shield") }} Токен узла «{{ node.name }}»</h3>
   <div class="alert alert-error">{{ icon("triangle-alert") }} Токен показывается один раз — в панели хранится только его хеш. Скопируйте его сейчас.</div>
+  {% if command %}
+  <h4>Установка одной командой</h4>
+  <p class="muted small">Выполните на машине (нужен root). Ссылка одноразовая, действует 30 минут; она выпустит узлу новый токен, поэтому токен ниже нужен только для ручной установки.</p>
+  <pre><code>{{ command }}</code></pre>
+  {% if node.server %}<div hx-get="/servers/{{ node.server.id }}/agent-install/progress" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
+  {% endif %}
+
+  <details{% if not command %} open{% endif %}>
+  <summary><b>Установка вручную</b></summary>
   <p><label>Токен<input readonly value="{{ token }}" class="mono" autocomplete="off"></label></p>
 
   <h4>1. Скопировать агента на узел (с сервера панели)</h4>
@@ -18,5 +27,6 @@ PANEL_URL="{{ ws_url }}"</code></pre>
   <pre><code>cd ~/homelab-agent &amp;&amp; ./start-agent</code></pre>
   <p class="muted small">Установщик сам поставит Python, создаст службу с автозапуском, запишет токен в защищённый файл и сотрёт его
     из <code>start-agent</code>. Удаление — <code>./uninstall-agent</code>, подробно — <code>УДАЛЕНИЕ.md</code>.</p>
+  </details>
 </section>
 {% endblock %}

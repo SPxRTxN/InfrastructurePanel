@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/css/app.css">
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/js/app.js" defer></script>
+  <script src="/static/js/tiles.js" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body class="{{ 'sidebar-collapsed' if ui.sidebar_collapsed }}" hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
@@ -19,21 +20,31 @@
       <a href="/" class="logo">{{ icon("network", "logo-icon") }}<span class="label">Homelab</span></a>
       <button class="icon-btn" id="sidebar-toggle" type="button" title="Свернуть меню">{{ icon("panel-left-close") }}</button>
     </div>
-    <nav class="nav">
-      {% for url, ic, label, perm in menu %}
-      <a href="{{ url }}" class="nav-item {{ 'active' if active == url }}" title="{{ label }}">{{ icon(ic) }}<span class="label">{{ label }}</span></a>
-      {% endfor %}
-    </nav>
+    <label class="nav-search label" title="Перейти к разделу">
+      {{ icon("search") }}<input type="search" id="nav-search" placeholder="Перейти…" aria-label="Перейти к разделу" autocomplete="off"><kbd>/</kbd>
+    </label>
+    {% for group, items in menu %}
+    <div class="nav-group">
+      {% if group %}<div class="nav-group-label label">{{ group }}</div>{% endif %}
+      <nav class="nav">
+        {% for url, ic, label, perm in items %}
+        <a href="{{ url }}" class="nav-item {{ 'active' if active == url }}" title="{{ label }}">{{ icon(ic) }}<span class="label">{{ label }}</span></a>
+        {% endfor %}
+      </nav>
+    </div>
+    {% endfor %}
     <div class="nav nav-bottom">
       <a href="/settings" class="nav-item {{ 'active' if active == '/settings' }}" title="Настройки">{{ icon("settings") }}<span class="label">Настройки</span></a>
-      <a href="/settings/profile" class="nav-profile" title="Профиль">
-        <span class="avatar">{{ user.name[:1] | upper }}</span>
-        <span class="label"><b>{{ user.name }}</b><small>{{ user.groups | map(attribute="name") | join(", ") }}</small></span>
-      </a>
-      <form method="post" action="/logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="nav-item" type="submit" title="Выход">{{ icon("log-out") }}<span class="label">Выход</span></button>
-      </form>
+      <div class="nav-profile">
+        <a href="/settings/profile" class="nav-profile-link" title="Профиль">
+          <span class="avatar">{{ user.name[:1] | upper }}</span>
+          <span class="label"><b>{{ user.name }}</b><small>{{ user.groups | map(attribute="name") | join(", ") }}</small></span>
+        </a>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="icon-btn icon-btn-ghost" type="submit" title="Выход">{{ icon("log-out") }}</button>
+        </form>
+      </div>
       <small class="label app-version" title="Версия панели">v{{ app_version }}</small>
     </div>
   </aside>
@@ -52,7 +63,6 @@
             <div id="bell-list" class="bell-list"><p class="muted">Загрузка…</p></div>
           </div>
         </div>
-        <a href="/settings/profile" class="avatar" title="{{ user.name }}">{{ user.name[:1] | upper }}</a>
       </div>
     </header>
     <div class="content">

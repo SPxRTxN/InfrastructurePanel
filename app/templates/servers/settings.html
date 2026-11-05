@@ -5,5 +5,5 @@
 {% endblock %}
 {% block content %}
 <a href="/servers/{{ srv.id }}" class="muted">{{ icon("arrow-left") }} {{ srv.name }}</a>
-{% include "servers/_settings.html" %}
+<div class="tile-grid">{% include "servers/_settings.html" %}</div>
 {% endblock %}
